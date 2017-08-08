@@ -2,6 +2,18 @@
 
 A docker image to rotate oxAuth keys.
 
+## Versioning/Tagging
+
+This image uses its own versioning/tagging format.
+
+    <IMAGE-NAME>:<GLUU-SERVER-VERSION>_<INTERNAL-REV-VERSION>
+
+For example, `gluufederation/key-rotation:3.0.1_rev1.0.0` consists of:
+
+- glufederation/key-rotation as `<IMAGE_NAME>`; the actual image name
+- 3.0.1 as `GLUU-SERVER-VERSION`; the Gluu Server version as setup reference
+- rev1.0.0 as `<INTERNAL-REV-VERSION>`; revision made when developing the image
+
 ## Installation
 
 Build the image:
