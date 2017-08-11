@@ -149,6 +149,7 @@ def modify_oxauth_config(pub_keys):
 
     for server in get_ldap_servers():
         try:
+            logger.info("connecting to server {}:{}".format(server["host"], server["port"]))
             with ldap_conn(server["host"], server["port"], user, passwd) as conn:
                 dn, attrs = search_from_ldap(conn, oxauth_base)
 
