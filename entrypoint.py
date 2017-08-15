@@ -203,7 +203,7 @@ def modify_oxauth_config(pub_keys):
 def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
     encoded_jks = ""
     with open(jks, "rb") as fd:
-        encoded_jks = base64.b64encode(fd.read())
+        encoded_jks = encrypt_text(fd.read(), consul.kv.get("encoded_salt"))
     return encoded_jks
 
 
@@ -247,6 +247,18 @@ def main():
             logger.warn("unable to connect to KV storage; reason={}".format(exc))
     except KeyboardInterrupt:
         logger.warn("canceled by user; exiting ...")
+
+
+def encrypt_text(text, key):
+    # Porting from pyDes-based encryption (see http://git.io/htxa)
+    # to use M2Crypto instead (see https://gist.github.com/mrluanma/917014)
+    cipher = Cipher(alg="des_ede3_ecb",
+                    key=b"{}".format(key),
+                    op=1,
+                    iv="\0" * 16)
+    encrypted_text = cipher.update(b"{}".format(text))
+    encrypted_text += cipher.final()
+    return base64.b64encode(encrypted_text)
 
 
 if __name__ == "__main__":
