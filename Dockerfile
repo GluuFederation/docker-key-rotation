@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --force-yes \
 
 # JAR files required to generate OpenID Connect keys
 ENV OX_VERSION 3.1.1.Final
-ENV OX_BUILD_DATE 2017-10-03
+ENV OX_BUILD_DATE 2017-10-11
 RUN mkdir -p /opt/key-rotation/javalibs
 RUN wget -q http://ox.gluu.org/maven/org/xdi/oxauth-client/${OX_VERSION}/oxauth-client-${OX_VERSION}-jar-with-dependencies.jar -O /opt/key-rotation/javalibs/keygen.jar
 
