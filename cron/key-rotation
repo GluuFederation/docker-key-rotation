@@ -1,3 +1,0 @@
-* * * * * root . /opt/key-rotation/env; python /opt/key-rotation/entrypoint.py >> /var/log/key-rotation.log 2>&1
-* * * * * root sleep 30; . /opt/key-rotation/env; python /opt/key-rotation/entrypoint.py >> /var/log/key-rotation.log 2>&1
-# An empty line is required at the end of this file for a valid cron file.

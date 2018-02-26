@@ -5,19 +5,25 @@ import os
 import shlex
 import subprocess
 import time
-from contextlib import contextmanager
 
 import consulate
-import ldap
+from ldap3 import Connection
+from ldap3 import Server
+from ldap3 import BASE
+from ldap3 import MODIFY_REPLACE
+from ldap3.core.exceptions import LDAPSocketOpenError
 from M2Crypto.EVP import Cipher
 from requests.exceptions import ConnectionError
 
 GLUU_KV_HOST = os.environ.get("GLUU_KV_HOST", "localhost")
 GLUU_KV_PORT = os.environ.get("GLUU_KV_PORT", 8500)
-GLUU_LDAP_URL = os.environ.get("GLUU_LDAP_URL", "localhost:1389")
+GLUU_LDAP_URL = os.environ.get("GLUU_LDAP_URL", "localhost:1636")
 
-# Interval between rotation (in days)
-GLUU_KEY_ROTATION_INTERVAL = os.environ.get("GLUU_KEY_ROTATION_INTERVAL", 2)
+# Interval between rotation (in hours)
+GLUU_KEY_ROTATION_INTERVAL = os.environ.get("GLUU_KEY_ROTATION_INTERVAL", 48)
+
+# check interval (by default per 1 hour)
+GLUU_KEY_ROTATION_CHECK = os.environ.get("GLUU_KEY_ROTATION_CHECK", 60 * 60)
 
 consul = consulate.Consul(host=GLUU_KV_HOST, port=GLUU_KV_PORT)
 
@@ -45,12 +51,14 @@ def generate_openid_keys(passwd, jks_path, dn, exp=365,
     cmd = " ".join([
         "java",
         "-jar", "/opt/key-rotation/javalibs/keygen.jar",
-        "-algorithms", alg,
+        "-enc_keys", alg,
+        "-sig_keys", alg,
         "-dnname", "{!r}".format(dn),
         "-expiration", "{}".format(exp),
         "-keystore", jks_path,
         "-keypasswd", passwd,
     ])
+
     out, err, retcode = exec_cmd(cmd)
     return out, err, retcode
 
@@ -66,49 +74,20 @@ def should_rotate_keys():
     try:
         rotation_interval = int(GLUU_KEY_ROTATION_INTERVAL)
     except ValueError:
-        rotation_interval = 2
+        rotation_interval = 48
 
     # use default rotation interval if the number is less than equal 0
     if rotation_interval <= 0:
-        rotation_interval = 2
+        rotation_interval = 48
 
     # when keys are supposed to be rotated
-    next_rotation = int(last_rotation) + (60 * 60 * 24 * rotation_interval)
+    next_rotation = int(last_rotation) + (60 * 60 * rotation_interval)
 
     # current timestamp
     now = int(time.time())
 
     # check if current timestamp surpassed expected rotation timestamp
     return now > next_rotation
-
-
-@contextmanager
-def ldap_conn(host, port, user, passwd, protocol="ldap", starttls=False):
-    try:
-        conn = ldap.initialize("{}://{}:{}".format(
-            protocol, host, port
-        ))
-        if starttls:
-            conn.start_tls_s()
-        conn.bind_s(user, passwd)
-        yield conn
-    except ldap.LDAPError:
-        raise
-    finally:
-        conn.unbind()
-
-
-def search_from_ldap(conn, base, scope=ldap.SCOPE_BASE,
-                     filterstr="(objectClass=*)",
-                     attrlist=None, attrsonly=0):
-    """Searches entries in LDAP.
-    """
-    try:
-        result = conn.search_s(base, scope)
-        ret = result[0]
-    except ldap.NO_SUCH_OBJECT:
-        ret = ("", {},)
-    return ret
 
 
 def decrypt_text(encrypted_text, key):
@@ -134,7 +113,8 @@ def get_ldap_servers():
 
 
 def modify_oxauth_config(pub_keys):
-    user = "cn=directory manager,o=gluu"
+    # user = "cn=directory manager,o=gluu"
+    user = "cn=directory manager"
     passwd = decrypt_text(consul.kv.get("encoded_ox_ldap_pw"),
                           consul.kv.get("encoded_salt"))
 
@@ -149,27 +129,32 @@ def modify_oxauth_config(pub_keys):
 
     for server in get_ldap_servers():
         try:
+            ldap_server = Server(server["host"], port=int(server["port"]), use_ssl=True)
             logger.info("connecting to server {}:{}".format(server["host"], server["port"]))
-            with ldap_conn(server["host"], server["port"], user, passwd) as conn:
-                dn, attrs = search_from_ldap(conn, oxauth_base)
 
-                # search failed due to missing entry
-                if not dn:
-                    logger.warn("unable to find entry with DN {}".format(dn))
-                    return False
+            with Connection(ldap_server, user, passwd) as conn:
+                conn.search(search_base=oxauth_base, search_filter="(objectClass=*)",
+                            search_scope=BASE, attributes=['*'])
+
+                if not conn.entries:
+                    # search failed due to missing entry
+                    logger.warn("unable to find oxAuth config")
+                    continue
+
+                entry = conn.entries[0]
 
                 # oxRevision is increased to mark update
-                ox_rev = str(int(attrs["oxRevision"][0]) + 1)
+                ox_rev = str(int(entry["oxRevision"][0]) + 1)
 
                 # update public keys if necessary
-                keys_conf = json.loads(attrs["oxAuthConfWebKeys"][0])
+                keys_conf = json.loads(entry["oxAuthConfWebKeys"][0])
                 keys_conf["keys"] = pub_keys
                 serialized_keys_conf = json.dumps(keys_conf)
 
-                dyn_conf = json.loads(attrs["oxAuthConfDynamic"][0])
+                dyn_conf = json.loads(entry["oxAuthConfDynamic"][0])
                 dyn_conf.update({
                     "keyRegenerationEnabled": False,  # always set to False
-                    "keyRegenerationInterval": int(GLUU_KEY_ROTATION_INTERVAL) * 24,
+                    "keyRegenerationInterval": int(GLUU_KEY_ROTATION_INTERVAL),
                     "defaultSignatureAlgorithm": "RS512",
                 })
                 dyn_conf.update({
@@ -178,23 +163,19 @@ def modify_oxauth_config(pub_keys):
                 })
                 serialized_dyn_conf = json.dumps(dyn_conf)
 
-                # list of attributes need to be updated
-                modlist = [
-                    (ldap.MOD_REPLACE, "oxRevision", ox_rev),
-                    (ldap.MOD_REPLACE, "oxAuthConfWebKeys", serialized_keys_conf),
-                    (ldap.MOD_REPLACE, "oxAuthConfDynamic", serialized_dyn_conf),
-                ]
-
                 # update the attributes
-                conn.modify_s(dn, modlist)
+                logger.info("modifying oxAuth configuration")
+                conn.modify(entry.entry_dn, {
+                    'oxRevision': [(MODIFY_REPLACE, [ox_rev])],
+                    'oxAuthConfWebKeys': [(MODIFY_REPLACE, [serialized_keys_conf])],
+                    'oxAuthConfDynamic': [(MODIFY_REPLACE, [serialized_dyn_conf])],
+                })
 
-                # mark update as succeed
-                return True
-        except ldap.SERVER_DOWN as exc:
-            logger.warn("unable to connect to LDAP server at {}:{}; reason={}".format(
-                server["host"], server["port"], exc,
-            ))
-            # try another server
+                result = conn.result["description"]
+                return result == "success"
+        except LDAPSocketOpenError as exc:
+            logger.warn("Unable to connect to LDAP at {}; reason={}".format(exc))
+            logger.info("Trying other server (if possible).")
             continue
 
     # mark update as failed
@@ -237,15 +218,22 @@ def rotate_keys():
 
 def main():
     try:
-        logger.info("checking whether key should be rotated")
+        check_interval = int(GLUU_KEY_ROTATION_CHECK)
+    except ValueError:
+        check_interval = 60 * 60
 
-        try:
-            if should_rotate_keys():
-                rotate_keys()
-            else:
-                logger.info("no need to rotate keys at the moment")
-        except ConnectionError as exc:
-            logger.warn("unable to connect to KV storage; reason={}".format(exc))
+    try:
+        while True:
+            logger.info("checking whether key should be rotated")
+
+            try:
+                if should_rotate_keys():
+                    rotate_keys()
+                else:
+                    logger.info("no need to rotate keys at the moment")
+            except ConnectionError as exc:
+                logger.warn("unable to connect to KV storage; reason={}".format(exc))
+            time.sleep(check_interval)
     except KeyboardInterrupt:
         logger.warn("canceled by user; exiting ...")
 
