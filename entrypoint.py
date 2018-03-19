@@ -174,7 +174,8 @@ def modify_oxauth_config(pub_keys):
                 result = conn.result["description"]
                 return result == "success"
         except LDAPSocketOpenError as exc:
-            logger.warn("Unable to connect to LDAP at {}; reason={}".format(exc))
+            logger.warn("Unable to connect to LDAP at {}:{}; reason={}".format(
+                server["host"], server["port"], exc))
             logger.info("Trying other server (if possible).")
             continue
 
