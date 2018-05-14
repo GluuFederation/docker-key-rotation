@@ -38,4 +38,5 @@ ENV GLUU_KEY_ROTATION_INTERVAL 48
 ENV GLUU_KEY_ROTATION_CHECK 3600
 
 COPY entrypoint.py /opt/key-rotation/entrypoint.py
-CMD ["python", "/opt/key-rotation/entrypoint.py"]
+COPY wait-for-it /opt/key-rotation/wait-for-it
+CMD ["/opt/key-rotation/wait-for-it", "python", "/opt/key-rotation/entrypoint.py"]
