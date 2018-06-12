@@ -4,25 +4,25 @@ A docker image to rotate oxAuth keys.
 
 ## Latest Stable Release
 
-Latest stable release is `gluufederation/key-rotation:3.1.2_dev`. See `CHANGES.md` for archives.
+Latest stable release is `gluufederation/key-rotation:3.1.2_01`. See `CHANGES.md` for archives.
 
 ## Versioning/Tagging
 
 This image uses its own versioning/tagging format.
 
-    <IMAGE-NAME>:<GLUU-SERVER-VERSION>_<BASELINE_DEV>
+    <IMAGE-NAME>:<GLUU-SERVER-VERSION>_<RELEASE_VERSION>
 
-For example, `gluufederation/key-rotation:3.1.2_dev` consists of:
+For example, `gluufederation/config-init:3.1.2_01` consists of:
 
-- `glufederation/key-rotation` as `<IMAGE_NAME>`; the actual image name
+- `glufederation/config-init` as `<IMAGE_NAME>`; the actual image name
 - `3.1.2` as `GLUU-SERVER-VERSION`; the Gluu Server version as setup reference
-- `_dev` as `<BASELINE_DEV>`; used until official production release
+- `01` as `<RELEASE_VERSION>`
 
 ## Installation
 
 Pull the image:
 
-    docker pull gluufederation/key-rotation:3.1.2_dev
+    docker pull gluufederation/key-rotation:3.1.2_01
 
 ## Environment Variables
 
@@ -46,5 +46,5 @@ docker run -d \
     -e GLUU_KV_PORT=8500 \
     -e GLUU_LDAP_URL=ldap.example.com:1636 \
     -e GLUU_KEY_ROTATION_INTERVAL=2 \
-    gluufederation/key-rotation:3.1.2_dev
+    gluufederation/key-rotation:3.1.2_01
 ```
