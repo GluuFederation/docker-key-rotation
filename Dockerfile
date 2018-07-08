@@ -31,12 +31,11 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 WORKDIR /opt/key-rotation
 RUN mkdir -p /etc/certs
 VOLUME /etc/certs
-ENV GLUU_KV_HOST localhost
-ENV GLUU_KV_PORT 8500
 ENV GLUU_LDAP_URL localhost:1636
 ENV GLUU_KEY_ROTATION_INTERVAL 48
 ENV GLUU_KEY_ROTATION_CHECK 3600
 
 COPY entrypoint.py /opt/key-rotation/entrypoint.py
 COPY wait-for-it /opt/key-rotation/wait-for-it
+COPY gluu_config.py /opt/key-rotation/gluu_config.py
 CMD ["/opt/key-rotation/wait-for-it", "python", "/opt/key-rotation/entrypoint.py"]

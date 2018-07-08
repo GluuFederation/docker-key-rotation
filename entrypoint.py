@@ -6,17 +6,15 @@ import shlex
 import subprocess
 import time
 
-import consulate
 import pyDes
 from ldap3 import Connection
 from ldap3 import Server
 from ldap3 import BASE
 from ldap3 import MODIFY_REPLACE
 from ldap3.core.exceptions import LDAPSocketOpenError
-from requests.exceptions import ConnectionError
 
-GLUU_KV_HOST = os.environ.get("GLUU_KV_HOST", "localhost")
-GLUU_KV_PORT = os.environ.get("GLUU_KV_PORT", 8500)
+from gluu_config import ConfigManager
+
 GLUU_LDAP_URL = os.environ.get("GLUU_LDAP_URL", "localhost:1636")
 
 # Interval between rotation (in hours)
@@ -25,7 +23,6 @@ GLUU_KEY_ROTATION_INTERVAL = os.environ.get("GLUU_KEY_ROTATION_INTERVAL", 48)
 # check interval (by default per 1 hour)
 GLUU_KEY_ROTATION_CHECK = os.environ.get("GLUU_KEY_ROTATION_CHECK", 60 * 60)
 
-consul = consulate.Consul(host=GLUU_KV_HOST, port=GLUU_KV_PORT)
 
 logger = logging.getLogger("key_rotation")
 logger.setLevel(logging.INFO)
@@ -34,25 +31,7 @@ fmt = logging.Formatter('%(levelname)s - %(asctime)s - %(message)s')
 ch.setFormatter(fmt)
 logger.addHandler(ch)
 
-CONFIG_PREFIX = "gluu/config/"
-
-
-def merge_path(name):
-    # example: `hostname` renamed to `gluu/config/hostname`
-    return "".join([CONFIG_PREFIX, name])
-
-
-def unmerge_path(name):
-    # example: `gluu/config/hostname` renamed to `hostname`
-    return name[len(CONFIG_PREFIX):]
-
-
-def get_config(name, default=None):
-    return consul.kv.get(merge_path(name), default)
-
-
-def set_config(name, value):
-    return consul.kv.set(merge_path(name), value)
+config_manager = ConfigManager()
 
 
 def exec_cmd(cmd):
@@ -84,7 +63,7 @@ def generate_openid_keys(passwd, jks_path, dn, exp=365,
 
 
 def should_rotate_keys():
-    last_rotation = get_config("oxauth_key_rotated_at")
+    last_rotation = config_manager.get("oxauth_key_rotated_at")
 
     # keys are not rotated yet
     if not last_rotation:
@@ -127,15 +106,15 @@ def decrypt_text(encrypted_text, key):
 
 def modify_oxauth_config(pub_keys):
     # user = "cn=directory manager,o=gluu"
-    user = get_config("ldap_binddn")
-    passwd = decrypt_text(get_config("encoded_ox_ldap_pw"),
-                          get_config("encoded_salt"))
+    user = config_manager.get("ldap_binddn")
+    passwd = decrypt_text(config_manager.get("encoded_ox_ldap_pw"),
+                          config_manager.get("encoded_salt"))
 
     # base DN for oxAuth config
     oxauth_base = ",".join([
         "ou=oxauth",
         "ou=configuration",
-        "inum={}".format(get_config("inumAppliance")),
+        "inum={}".format(config_manager.get("inumAppliance")),
         "ou=appliances",
         "o=gluu",
     ])
@@ -172,7 +151,7 @@ def modify_oxauth_config(pub_keys):
                 })
                 dyn_conf.update({
                     "webKeysStorage": "keystore",
-                    "keyStoreSecret": get_config("oxauth_openid_jks_pass"),
+                    "keyStoreSecret": config_manager.get("oxauth_openid_jks_pass"),
                 })
                 serialized_dyn_conf = json.dumps(dyn_conf)
 
@@ -199,15 +178,15 @@ def modify_oxauth_config(pub_keys):
 def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
     encoded_jks = ""
     with open(jks, "rb") as fd:
-        encoded_jks = encrypt_text(fd.read(), get_config("encoded_salt"))
+        encoded_jks = encrypt_text(fd.read(), config_manager.get("encoded_salt"))
     return encoded_jks
 
 
 def rotate_keys():
     out, err, retcode = generate_openid_keys(
-        get_config("oxauth_openid_jks_pass"),
-        get_config("oxauth_openid_jks_fn"),
-        r"{}".format(get_config("default_openid_jks_dn_name")),
+        config_manager.get("oxauth_openid_jks_pass"),
+        config_manager.get("oxauth_openid_jks_fn"),
+        r"{}".format(config_manager.get("default_openid_jks_dn_name")),
     )
 
     if retcode != 0:
@@ -221,8 +200,8 @@ def rotate_keys():
         return False
 
     if modify_oxauth_config(pub_keys):
-        set_config("oxauth_key_rotated_at", int(time.time()))
-        set_config("oxauth_jks_base64", encode_jks())
+        config_manager.set("oxauth_key_rotated_at", int(time.time()))
+        config_manager.set("oxauth_jks_base64", encode_jks())
         logger.info("keys have been rotated")
         return True
 
@@ -245,8 +224,8 @@ def main():
                     rotate_keys()
                 else:
                     logger.info("no need to rotate keys at the moment")
-            except ConnectionError as exc:
-                logger.warn("unable to connect to KV storage; reason={}".format(exc))
+            except Exception as exc:
+                logger.warn("unable to connect to config backend; reason={}".format(exc))
             time.sleep(check_interval)
     except KeyboardInterrupt:
         logger.warn("canceled by user; exiting ...")
