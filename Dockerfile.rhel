@@ -23,7 +23,7 @@ RUN mkdir -p /opt/key-rotation/javalibs \
 # Python
 # ======
 COPY requirements.txt /tmp/requirements.txt
-RUN source scl_source enable pyton27 \
+RUN source scl_source enable python27 \
     && pip install -U pip \
     && pip install --no-cache-dir -r /tmp/requirements.txt
 
