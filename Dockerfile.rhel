@@ -1,13 +1,14 @@
-FROM openjdk:jre-alpine
+FROM registry.access.redhat.com/rhel7-minimal
 
 LABEL maintainer="Gluu Inc. <support@gluu.org>"
 
-# ===============
-# Alpine packages
-# ===============
-RUN apk update && apk add --no-cache \
-    py-pip \
-    openssl
+# =============
+# RHEL packages
+# =============
+RUN microdnf --enablerepo=rhel-server-rhscl-7-rpms --enablerepo=rhel-7-server-rpms install \
+    python27-python-pip wget java-1.8.0-openjdk-headless \
+    && microdnf update \
+    && microdnf clean all
 
 # =============
 # oxAuth client
@@ -21,9 +22,10 @@ RUN mkdir -p /opt/key-rotation/javalibs \
 # ======
 # Python
 # ======
-RUN pip install -U pip
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN source scl_source enable pyton27 \
+    && pip install -U pip \
+    && pip install --no-cache-dir -r /tmp/requirements.txt
 
 # ==========
 # misc stuff
