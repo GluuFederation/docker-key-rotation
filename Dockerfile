@@ -25,6 +25,14 @@ RUN pip install -U pip
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
+# ====
+# Tini
+# ====
+
+ENV TINI_VERSION v0.18.0
+RUN wget -q https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static -O /usr/bin/tini \
+    && chmod +x /usr/bin/tini
+
 # ==========
 # misc stuff
 # ==========
@@ -38,4 +46,5 @@ ENV GLUU_KEY_ROTATION_CHECK 3600
 COPY entrypoint.py /opt/key-rotation/entrypoint.py
 COPY wait-for-it /opt/key-rotation/wait-for-it
 COPY gluu_config.py /opt/key-rotation/gluu_config.py
+ENTRYPOINT ["tini", "--"]
 CMD ["/opt/key-rotation/wait-for-it", "python", "/opt/key-rotation/entrypoint.py"]
