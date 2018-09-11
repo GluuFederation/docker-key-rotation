@@ -39,6 +39,19 @@ RUN wget -q https://github.com/krallin/tini/releases/download/${TINI_VERSION}/ti
 WORKDIR /opt/key-rotation
 RUN mkdir -p /etc/certs
 VOLUME /etc/certs
+
+ENV GLUU_CONFIG_ADAPTER consul
+ENV GLUU_CONSUL_HOST localhost
+ENV GLUU_CONSUL_PORT 8500
+ENV GLUU_CONSUL_CONSISTENCY stale
+ENV GLUU_CONSUL_SCHEME http
+ENV GLUU_CONSUL_VERIFY false
+ENV GLUU_CONSUL_CACERT_FILE /etc/certs/consul_ca.crt
+ENV GLUU_CONSUL_CERT_FILE /etc/certs/consul_client.crt
+ENV GLUU_CONSUL_KEY_FILE /etc/certs/consul_client.key
+ENV GLUU_CONSUL_TOKEN_FILE /etc/certs/consul_token
+ENV GLUU_KUBERNETES_NAMESPACE default
+ENV GLUU_KUBERNETES_CONFIGMAP gluu
 ENV GLUU_LDAP_URL localhost:1636
 ENV GLUU_KEY_ROTATION_INTERVAL 48
 ENV GLUU_KEY_ROTATION_CHECK 3600
