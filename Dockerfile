@@ -1,4 +1,4 @@
-FROM openjdk:jre-alpine
+FROM gluufederation/base-openjdk:jre-alpine
 
 LABEL maintainer="Gluu Inc. <support@gluu.org>"
 
@@ -7,7 +7,8 @@ LABEL maintainer="Gluu Inc. <support@gluu.org>"
 # ===============
 RUN apk update && apk add --no-cache \
     py-pip \
-    openssl
+    openssl \
+    wget
 
 # =============
 # oxAuth client
