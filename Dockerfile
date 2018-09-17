@@ -6,8 +6,9 @@ LABEL maintainer="Gluu Inc. <support@gluu.org>"
 # Alpine packages
 # ===============
 RUN apk update && apk add --no-cache \
+    openssl \
     py-pip \
-    openssl
+    wget
 
 # =============
 # oxAuth client
