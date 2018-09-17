@@ -12,18 +12,11 @@ RUN apk update && apk add --no-cache \
 # =============
 # oxAuth client
 # =============
-ENV OX_VERSION 3.1.3.Final
-ENV OX_BUILD_DATE 2018-04-30
+ENV OX_VERSION 3.1.4-SNAPSHOT
+ENV OX_BUILD_DATE 2018-09-15
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /opt/key-rotation/javalibs \
     && wget -q https://ox.gluu.org/maven/org/xdi/oxauth-client/${OX_VERSION}/oxauth-client-${OX_VERSION}-jar-with-dependencies.jar -O /opt/key-rotation/javalibs/keygen.jar
-
-# ======
-# Python
-# ======
-RUN pip install -U pip
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # ====
 # Tini
@@ -32,6 +25,13 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 ENV TINI_VERSION v0.18.0
 RUN wget -q https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static -O /usr/bin/tini \
     && chmod +x /usr/bin/tini
+
+# ======
+# Python
+# ======
+RUN pip install -U pip
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # ==========
 # misc stuff
