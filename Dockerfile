@@ -13,8 +13,8 @@ RUN apk update && apk add --no-cache \
 # =============
 # oxAuth client
 # =============
-ENV OX_VERSION 3.1.4-SNAPSHOT
-ENV OX_BUILD_DATE 2018-09-22
+ENV OX_VERSION 3.1.4.Final
+ENV OX_BUILD_DATE 2018-09-26
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /opt/key-rotation/javalibs \
