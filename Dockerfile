@@ -1,4 +1,4 @@
-FROM openjdk:jre-alpine
+FROM openjdk:8-jre-alpine
 
 LABEL maintainer="Gluu Inc. <support@gluu.org>"
 
@@ -6,17 +6,27 @@ LABEL maintainer="Gluu Inc. <support@gluu.org>"
 # Alpine packages
 # ===============
 RUN apk update && apk add --no-cache \
+    openssl \
     py-pip \
-    openssl
+    wget
 
 # =============
 # oxAuth client
 # =============
-ENV OX_VERSION 3.1.3.Final
-ENV OX_BUILD_DATE 2018-04-30
+ENV OX_VERSION 3.1.4.Final
+ENV OX_BUILD_DATE 2018-09-27
+
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /opt/key-rotation/javalibs \
     && wget -q https://ox.gluu.org/maven/org/xdi/oxauth-client/${OX_VERSION}/oxauth-client-${OX_VERSION}-jar-with-dependencies.jar -O /opt/key-rotation/javalibs/keygen.jar
+
+# ====
+# Tini
+# ====
+
+ENV TINI_VERSION v0.18.0
+RUN wget -q https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static -O /usr/bin/tini \
+    && chmod +x /usr/bin/tini
 
 # ======
 # Python
@@ -31,6 +41,19 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 WORKDIR /opt/key-rotation
 RUN mkdir -p /etc/certs /opt/key-rotation/scripts /opt/key-rotation/javalibs
 VOLUME /etc/certs
+
+ENV GLUU_CONFIG_ADAPTER consul
+ENV GLUU_CONSUL_HOST localhost
+ENV GLUU_CONSUL_PORT 8500
+ENV GLUU_CONSUL_CONSISTENCY stale
+ENV GLUU_CONSUL_SCHEME http
+ENV GLUU_CONSUL_VERIFY false
+ENV GLUU_CONSUL_CACERT_FILE /etc/certs/consul_ca.crt
+ENV GLUU_CONSUL_CERT_FILE /etc/certs/consul_client.crt
+ENV GLUU_CONSUL_KEY_FILE /etc/certs/consul_client.key
+ENV GLUU_CONSUL_TOKEN_FILE /etc/certs/consul_token
+ENV GLUU_KUBERNETES_NAMESPACE default
+ENV GLUU_KUBERNETES_CONFIGMAP gluu
 ENV GLUU_LDAP_URL localhost:1636
 ENV GLUU_KEY_ROTATION_INTERVAL 48
 ENV GLUU_KEY_ROTATION_CHECK 3600
@@ -38,4 +61,6 @@ ENV GLUU_KEY_ROTATION_CHECK 3600
 COPY scripts /opt/key-rotation/scripts/
 RUN chmod +x /opt/key-rotation/scripts/wait-for-it.sh
 RUN chmod +x /opt/key-rotation/scripts/entrypoint.sh
+
+ENTRYPOINT ["tini", "--"]
 CMD ["/opt/key-rotation/scripts/wait-for-it.sh", "/opt/key-rotation/scripts/entrypoint.sh"]
