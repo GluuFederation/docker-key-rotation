@@ -6,7 +6,7 @@ LABEL maintainer="Gluu Inc. <support@gluu.org>"
 # RHEL packages
 # =============
 RUN microdnf --enablerepo=rhel-server-rhscl-7-rpms --enablerepo=rhel-7-server-rpms install \
-    python27-python-pip wget java-1.8.0-openjdk-headless \
+    python27-python-pip wget java-1.8.0-openjdk-headless net-tools bind-utils iputils \
     && microdnf update \
     && microdnf clean all
 
