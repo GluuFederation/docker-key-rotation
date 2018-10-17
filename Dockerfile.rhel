@@ -63,5 +63,8 @@ COPY scripts /opt/key-rotation/scripts/
 RUN chmod +x /opt/key-rotation/scripts/wait-for-it.sh
 RUN chmod +x /opt/key-rotation/scripts/entrypoint.sh
 
+# allow root group to write files to directories below
+RUN chgrp -R 0 /etc/certs && chmod -R g=u /etc/certs
+
 ENTRYPOINT ["tini", "--"]
 CMD ["/opt/key-rotation/scripts/wait-for-it.sh", "/opt/key-rotation/scripts/entrypoint.sh"]
