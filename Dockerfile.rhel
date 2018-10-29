@@ -1,18 +1,19 @@
 FROM registry.access.redhat.com/rhel7-minimal
 
-LABEL maintainer="Gluu Inc. <support@gluu.org>"
-
 # =============
 # RHEL packages
 # =============
-RUN microdnf --enablerepo=rhel-server-rhscl-7-rpms --enablerepo=rhel-7-server-rpms install \
-    python27-python-pip wget java-1.8.0-openjdk-headless net-tools bind-utils iputils \
-    && microdnf update \
+
+RUN REPOLIST=rhel-7-server-rpms,rhel-server-rhscl-7-rpms \
+    INSTALL_PKGS="python27-python-pip wget java-1.8.0-openjdk-headless net-tools bind-utils iputils shadow-utils" \
+    && microdnf -y update --enablerepo rhel-7-server-rpms --enablerepo rhel-server-rhscl-7-rpms --setopt=tsflags=nodocs \
+    && microdnf -y install --enablerepo rhel-7-server-rpms --enablerepo rhel-server-rhscl-7-rpms --setopt=tsflags=nodocs ${INSTALL_PKGS} \
     && microdnf clean all
 
 # =============
 # oxAuth client
 # =============
+
 ENV OX_VERSION 3.1.4.Final
 ENV OX_BUILD_DATE 2018-09-27
 
@@ -31,6 +32,7 @@ RUN wget -q https://github.com/krallin/tini/releases/download/${TINI_VERSION}/ti
 # ======
 # Python
 # ======
+
 COPY requirements.txt /tmp/requirements.txt
 RUN source scl_source enable python27 \
     && pip install -U pip \
@@ -39,9 +41,17 @@ RUN source scl_source enable python27 \
 # ==========
 # misc stuff
 # ==========
+
+LABEL name="key-rotation" \
+    maintainer="Gluu Inc. <support@gluu.org>" \
+    vendor="Gluu Federation" \
+    version="3.1.4" \
+    release="01" \
+    summary="Gluu's key-rotation app" \
+    description="Rotate oxAuth keys"
+
 WORKDIR /opt/key-rotation
 RUN mkdir -p /etc/certs /opt/key-rotation/scripts /opt/key-rotation/javalibs
-VOLUME /etc/certs
 
 ENV GLUU_CONFIG_ADAPTER consul
 ENV GLUU_CONSUL_HOST localhost
@@ -63,8 +73,14 @@ COPY scripts /opt/key-rotation/scripts/
 RUN chmod +x /opt/key-rotation/scripts/wait-for-it.sh
 RUN chmod +x /opt/key-rotation/scripts/entrypoint.sh
 
-# allow root group to write files to directories below
-RUN chgrp -R 0 /etc/certs && chmod -R g=u /etc/certs
+# create gluu user
+RUN useradd -ms /bin/sh gluu
+# adjust ownership
+RUN chown -R root:gluu /etc/certs \
+    && chmod -R g+w /etc/certs
 
+VOLUME /etc/certs
+
+USER gluu
 ENTRYPOINT ["tini", "--"]
 CMD ["/opt/key-rotation/scripts/wait-for-it.sh", "/opt/key-rotation/scripts/entrypoint.sh"]
