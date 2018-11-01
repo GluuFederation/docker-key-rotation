@@ -74,13 +74,16 @@ RUN chmod +x /opt/key-rotation/scripts/wait-for-it.sh
 RUN chmod +x /opt/key-rotation/scripts/entrypoint.sh
 
 # create gluu user
-RUN useradd -ms /bin/sh gluu
+RUN useradd -ms /bin/sh --uid 1000 gluu \
+    && usermod -a -G root gluu
+
 # adjust ownership
-RUN chown -R root:gluu /etc/certs \
-    && chmod -R g+w /etc/certs
+RUN chown -R 1000:1000 /opt/key-rotation \
+    && chgrp -R 0 /opt/key-rotation && chmod -R g=u /opt/key-rotation \
+    && chgrp -R 0 /etc/certs && chmod -R g=u /etc/certs
 
-VOLUME /etc/certs
+# run the entrypoint as gluu user
+USER 1000
 
-USER gluu
 ENTRYPOINT ["tini", "--"]
 CMD ["/opt/key-rotation/scripts/wait-for-it.sh", "/opt/key-rotation/scripts/entrypoint.sh"]
