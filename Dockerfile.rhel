@@ -53,6 +53,10 @@ LABEL name="key-rotation" \
 WORKDIR /opt/key-rotation
 RUN mkdir -p /etc/certs /opt/key-rotation/scripts /opt/key-rotation/javalibs
 
+# license
+RUN mkdir -p /licenses
+COPY LICENSE /licenses/MIT.txt
+
 ENV GLUU_CONFIG_ADAPTER consul
 ENV GLUU_CONSUL_HOST localhost
 ENV GLUU_CONSUL_PORT 8500
