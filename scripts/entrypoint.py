@@ -13,16 +13,7 @@ from ldap3 import BASE
 from ldap3 import MODIFY_REPLACE
 from ldap3.core.exceptions import LDAPSocketOpenError
 
-from gluu_config import ConfigManager
-
-GLUU_LDAP_URL = os.environ.get("GLUU_LDAP_URL", "localhost:1636")
-
-# Interval between rotation (in hours)
-GLUU_KEY_ROTATION_INTERVAL = os.environ.get("GLUU_KEY_ROTATION_INTERVAL", 48)
-
-# check interval (by default per 1 hour)
-GLUU_KEY_ROTATION_CHECK = os.environ.get("GLUU_KEY_ROTATION_CHECK", 60 * 60)
-
+from gluulib import get_manager
 
 logger = logging.getLogger("key_rotation")
 logger.setLevel(logging.INFO)
@@ -31,7 +22,7 @@ fmt = logging.Formatter('%(levelname)s - %(asctime)s - %(message)s')
 ch.setFormatter(fmt)
 logger.addHandler(ch)
 
-config_manager = ConfigManager()
+manager = get_manager()
 
 
 def exec_cmd(cmd):
@@ -63,7 +54,10 @@ def generate_openid_keys(passwd, jks_path, dn, exp=365,
 
 
 def should_rotate_keys():
-    last_rotation = config_manager.get("oxauth_key_rotated_at")
+    # Interval between rotation (in hours)
+    GLUU_KEY_ROTATION_INTERVAL = os.environ.get("GLUU_KEY_ROTATION_INTERVAL", 48)
+
+    last_rotation = manager.config.get("oxauth_key_rotated_at")
 
     # keys are not rotated yet
     if not last_rotation:
@@ -90,7 +84,9 @@ def should_rotate_keys():
 
 
 def get_ldap_servers():
+    GLUU_LDAP_URL = os.environ.get("GLUU_LDAP_URL", "localhost:1636")
     servers = []
+
     for server in GLUU_LDAP_URL.split(","):
         host, port = server.split(":", 1)
         servers.append({"host": host, "port": port})
@@ -105,16 +101,18 @@ def decrypt_text(encrypted_text, key):
 
 
 def modify_oxauth_config(pub_keys):
-    # user = "cn=directory manager,o=gluu"
-    user = config_manager.get("ldap_binddn")
-    passwd = decrypt_text(config_manager.get("encoded_ox_ldap_pw"),
-                          config_manager.get("encoded_salt"))
+    # Interval between rotation (in hours)
+    GLUU_KEY_ROTATION_INTERVAL = os.environ.get("GLUU_KEY_ROTATION_INTERVAL", 48)
+
+    user = manager.config.get("ldap_binddn")
+    passwd = decrypt_text(manager.secret.get("encoded_ox_ldap_pw"),
+                          manager.secret.get("encoded_salt"))
 
     # base DN for oxAuth config
     oxauth_base = ",".join([
         "ou=oxauth",
         "ou=configuration",
-        "inum={}".format(config_manager.get("inumAppliance")),
+        "inum={}".format(manager.config.get("inumAppliance")),
         "ou=appliances",
         "o=gluu",
     ])
@@ -151,7 +149,7 @@ def modify_oxauth_config(pub_keys):
                 })
                 dyn_conf.update({
                     "webKeysStorage": "keystore",
-                    "keyStoreSecret": config_manager.get("oxauth_openid_jks_pass"),
+                    "keyStoreSecret": manager.secret.get("oxauth_openid_jks_pass"),
                 })
                 serialized_dyn_conf = json.dumps(dyn_conf)
 
@@ -178,15 +176,15 @@ def modify_oxauth_config(pub_keys):
 def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
     encoded_jks = ""
     with open(jks, "rb") as fd:
-        encoded_jks = encrypt_text(fd.read(), config_manager.get("encoded_salt"))
+        encoded_jks = encrypt_text(fd.read(), manager.secret.get("encoded_salt"))
     return encoded_jks
 
 
 def rotate_keys():
     out, err, retcode = generate_openid_keys(
-        config_manager.get("oxauth_openid_jks_pass"),
-        config_manager.get("oxauth_openid_jks_fn"),
-        r"{}".format(config_manager.get("default_openid_jks_dn_name")),
+        manager.secret.get("oxauth_openid_jks_pass"),
+        manager.config.get("oxauth_openid_jks_fn"),
+        r"{}".format(manager.config.get("default_openid_jks_dn_name")),
     )
 
     if retcode != 0:
@@ -200,8 +198,8 @@ def rotate_keys():
         return False
 
     if modify_oxauth_config(pub_keys):
-        config_manager.set("oxauth_key_rotated_at", int(time.time()))
-        config_manager.set("oxauth_jks_base64", encode_jks())
+        manager.config.set("oxauth_key_rotated_at", int(time.time()))
+        manager.secret.set("oxauth_jks_base64", encode_jks())
         logger.info("keys have been rotated")
         return True
 
@@ -210,6 +208,9 @@ def rotate_keys():
 
 
 def main():
+    # check interval (by default per 1 hour)
+    GLUU_KEY_ROTATION_CHECK = os.environ.get("GLUU_KEY_ROTATION_CHECK", 60 * 60)
+
     try:
         check_interval = int(GLUU_KEY_ROTATION_CHECK)
     except ValueError:
@@ -225,7 +226,7 @@ def main():
                 else:
                     logger.info("no need to rotate keys at the moment")
             except Exception as exc:
-                logger.warn("unable to connect to config backend; reason={}".format(exc))
+                logger.warn("unable to connect to config or secret backend; reason={}".format(exc))
             time.sleep(check_interval)
     except KeyboardInterrupt:
         logger.warn("canceled by user; exiting ...")
