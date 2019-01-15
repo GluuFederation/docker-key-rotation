@@ -2,6 +2,10 @@
 
 Here you can see an overview of changes between each release.
 
+## Version 3.1.4_01
+
+Released on November 12th, 2018.
+
 ## Version 3.1.3_05
 
 Released on September 18th, 2018.
