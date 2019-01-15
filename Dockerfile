@@ -85,17 +85,17 @@ RUN mkdir -p /etc/certs
 COPY scripts /opt/key-rotation/scripts
 RUN chmod +x /opt/key-rotation/scripts/entrypoint.sh
 
-# create gluu user
-RUN useradd -ms /bin/sh --uid 1000 gluu \
-    && usermod -a -G root gluu
+# # create gluu user
+# RUN useradd -ms /bin/sh --uid 1000 gluu \
+#     && usermod -a -G root gluu
 
-# adjust ownership
-RUN chown -R 1000:1000 /opt/key-rotation \
-    && chgrp -R 0 /opt/key-rotation && chmod -R g=u /opt/key-rotation \
-    && chgrp -R 0 /etc/certs && chmod -R g=u /etc/certs
+# # adjust ownership
+# RUN chown -R 1000:1000 /opt/key-rotation \
+#     && chgrp -R 0 /opt/key-rotation && chmod -R g=u /opt/key-rotation \
+#     && chgrp -R 0 /etc/certs && chmod -R g=u /etc/certs
 
-# run the entrypoint as gluu user
-USER 1000
+# # run the entrypoint as gluu user
+# USER 1000
 
 ENTRYPOINT ["tini", "-g", "--"]
 CMD ["/opt/key-rotation/scripts/entrypoint.sh"]
