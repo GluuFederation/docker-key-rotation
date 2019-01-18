@@ -14,6 +14,7 @@ from ldap3 import MODIFY_REPLACE
 from ldap3.core.exceptions import LDAPSocketOpenError
 
 from gluulib import get_manager
+from wait_for import wait_for
 
 logger = logging.getLogger("key_rotation")
 logger.setLevel(logging.INFO)
@@ -240,4 +241,5 @@ def encrypt_text(text, key):
 
 
 if __name__ == "__main__":
+    wait_for(manager, deps=["config", "secret", "ldap"])
     main()
