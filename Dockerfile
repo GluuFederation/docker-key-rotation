@@ -5,6 +5,7 @@ LABEL maintainer="Gluu Inc. <support@gluu.org>"
 # ===============
 # Alpine packages
 # ===============
+
 RUN apk update && apk add --no-cache \
     openssl \
     py-pip \
@@ -14,6 +15,7 @@ RUN apk update && apk add --no-cache \
 # =============
 # oxAuth client
 # =============
+
 ENV OX_VERSION 3.1.5.Final
 ENV OX_BUILD_DATE 2019-01-14
 
@@ -32,6 +34,7 @@ RUN wget -q https://github.com/krallin/tini/releases/download/${TINI_VERSION}/ti
 # ======
 # Python
 # ======
+
 RUN pip install -U pip
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
@@ -39,6 +42,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # ==========
 # Config ENV
 # ==========
+
 ENV GLUU_CONFIG_ADAPTER consul
 ENV GLUU_CONFIG_CONSUL_HOST localhost
 ENV GLUU_CONFIG_CONSUL_PORT 8500
@@ -56,6 +60,7 @@ ENV GLUU_CONFIG_KUBERNETES_USE_KUBE_CONFIG false
 # ==========
 # Secret ENV
 # ==========
+
 ENV GLUU_SECRET_ADAPTER vault
 ENV GLUU_SECRET_VAULT_SCHEME http
 ENV GLUU_SECRET_VAULT_HOST localhost
@@ -73,13 +78,17 @@ ENV GLUU_SECRET_KUBERNETES_USE_KUBE_CONFIG false
 # ===========
 # Generic ENV
 # ===========
+
 ENV GLUU_LDAP_URL localhost:1636
 ENV GLUU_KEY_ROTATION_INTERVAL 48
 ENV GLUU_KEY_ROTATION_CHECK 3600
+ENV GLUU_WAIT_MAX_TIME 300
+ENV GLUU_WAIT_SLEEP_DURATION 5
 
 # ==========
 # misc stuff
 # ==========
+
 WORKDIR /opt/key-rotation
 RUN mkdir -p /etc/certs
 
