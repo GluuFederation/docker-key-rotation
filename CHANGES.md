@@ -2,6 +2,12 @@
 
 Here you can see an overview of changes between each release.
 
+## Version 3.1.4_02
+
+Released on March 15th, 2019.
+
+* Fixed issue where `oxauth_key_rotated_at` is saved even when `oxauth_jks_base64` config couldn't be saved.
+
 ## Version 3.1.4_01
 
 Released on November 12th, 2018.
