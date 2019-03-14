@@ -199,9 +199,9 @@ def rotate_keys():
         logger.warn("unable to get public keys; reason={}".format(exc))
         return False
 
-    if modify_oxauth_config(pub_keys):
+    if all([modify_oxauth_config(pub_keys),
+            config_manager.set("oxauth_jks_base64", encode_jks())]):
         config_manager.set("oxauth_key_rotated_at", int(time.time()))
-        config_manager.set("oxauth_jks_base64", encode_jks())
         logger.info("keys have been rotated")
         return True
 
