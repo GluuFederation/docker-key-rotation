@@ -64,7 +64,7 @@ ENV GLUU_KUBERNETES_CONFIGMAP gluu
 ENV GLUU_LDAP_URL localhost:1636
 ENV GLUU_KEY_ROTATION_INTERVAL 48
 ENV GLUU_KEY_ROTATION_CHECK 3600
-ENV GLUU_AUTO_ACCEPT_LICENSE false
+ENV GLUU_AUTO_ACK_LICENSE false
 
 COPY entrypoint.py /opt/key-rotation/entrypoint.py
 COPY wait-for-it /opt/key-rotation/wait-for-it
