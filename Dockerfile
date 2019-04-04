@@ -64,12 +64,9 @@ ENV GLUU_KUBERNETES_CONFIGMAP gluu
 ENV GLUU_LDAP_URL localhost:1636
 ENV GLUU_KEY_ROTATION_INTERVAL 48
 ENV GLUU_KEY_ROTATION_CHECK 3600
-ENV GLUU_AUTO_ACK_LICENSE false
 
 COPY entrypoint.py /opt/key-rotation/entrypoint.py
 COPY wait-for-it /opt/key-rotation/wait-for-it
 COPY gluu_config.py /opt/key-rotation/gluu_config.py
-COPY license_checker.py /opt/key-rotation/license_checker.py
-RUN chmod +x /opt/key-rotation/license_checker.py
 ENTRYPOINT ["tini", "--"]
-CMD ["/opt/key-rotation/license_checker.py", "/opt/key-rotation/wait-for-it", "python", "/opt/key-rotation/entrypoint.py"]
+CMD ["/opt/key-rotation/wait-for-it", "python", "/opt/key-rotation/entrypoint.py"]
