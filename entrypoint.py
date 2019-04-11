@@ -6,6 +6,7 @@ import random
 import shlex
 import string
 import subprocess
+import sys
 import time
 
 import pyDes
@@ -76,25 +77,8 @@ def should_rotate_keys():
     if not last_rotation:
         return True
 
-    # ensure rotation interval is an integer
-    try:
-        rotation_interval = int(GLUU_KEY_ROTATION_INTERVAL)
-    except ValueError:
-        rotation_interval = 48
-
-    # due to the limitation on KeyGenerator CLI where expiration
-    # is set to daily, ensure interval always a multiplication of 24 (hours)
-    if rotation_interval % 24 != 0:
-        logger.warn("GLUU_KEY_ROTATION_INTERVAL value only support "
-                    "a value of multiplication of 24")
-        return False
-
-    # use default rotation interval if the number is less than equal 0
-    if rotation_interval <= 0:
-        rotation_interval = 48
-
     # when keys are supposed to be rotated
-    next_rotation = int(last_rotation) + (60 * 60 * rotation_interval)
+    next_rotation = int(last_rotation) + (60 * 60 * GLUU_KEY_ROTATION_INTERVAL)
 
     # current timestamp
     now = int(time.time())
@@ -164,7 +148,6 @@ def rotate_keys(user, passwd, inum, jks_pass, jks_fn, jks_dn):
                 "keyRegenerationInterval": int(GLUU_KEY_ROTATION_INTERVAL),
                 "webKeysStorage": "keystore",
                 "keyStoreSecret": jks_pass,
-                # "defaultSignatureAlgorithm": "RS512",
             })
 
             conf_webkeys = json.loads(ox_config["oxAuthConfWebKeys"][0])
@@ -179,12 +162,11 @@ def rotate_keys(user, passwd, inum, jks_pass, jks_fn, jks_dn):
 
             if retcode != 0:
                 logger.error("unable to generate keys; reason={}".format(err))
-                return False
+                return
 
             try:
                 new_keys = json.loads(out)
                 conf_webkeys = merge_keys(new_keys, conf_webkeys)
-                # conf_webkeys = new_keys
                 ox_modified = modify_oxauth_config(
                     conn, ox_config.entry_dn, ox_rev, conf_dynamic, conf_webkeys)
 
@@ -192,33 +174,25 @@ def rotate_keys(user, passwd, inum, jks_pass, jks_fn, jks_dn):
                         config_manager.set("oxauth_jks_base64", encode_jks())]):
                     config_manager.set("oxauth_key_rotated_at", int(time.time()))
                     logger.info("keys have been rotated")
-                    return True
             except (TypeError, ValueError) as exc:
                 logger.warn("unable to get public keys; reason={}".format(exc))
-                return False
     # cant connect to LDAP
     except LDAPSocketOpenError as exc:
         logger.warn("Unable to connect to LDAP at {}; reason={}".format(
             GLUU_LDAP_URL, exc))
 
-    # mark rotation as failed
-    return False
-
 
 def main():
+    validate_rotation_check()
+    validate_rotation_interval()
+
     inum = config_manager.get("inumAppliance")
     user = config_manager.get("ldap_binddn")
     passwd = decrypt_text(config_manager.get("encoded_ox_ldap_pw"),
                           config_manager.get("encoded_salt"))
-    # jks_pass = config_manager.get("oxauth_openid_jks_pass")
     jks_pass = get_random_chars()
     jks_fn = config_manager.get("oxauth_openid_jks_fn")
     jks_dn = r"{}".format(config_manager.get("default_openid_jks_dn_name"))
-
-    try:
-        check_interval = int(GLUU_KEY_ROTATION_CHECK)
-    except ValueError:
-        check_interval = 60 * 60
 
     try:
         while True:
@@ -230,8 +204,9 @@ def main():
                 else:
                     logger.info("no need to rotate keys at the moment")
             except Exception as exc:
-                logger.warn("unable to connect to config backend; reason={}".format(exc))
-            time.sleep(check_interval)
+                logger.warn("unable to connect to config backend; "
+                            "reason={}".format(exc))
+            time.sleep(GLUU_KEY_ROTATION_CHECK)
     except KeyboardInterrupt:
         logger.warn("canceled by user; exiting ...")
 
@@ -246,7 +221,6 @@ def encrypt_text(text, key):
 def get_exp_in_days(rotation_interval, token_lifetime):
     # current version of KeyGenerator CLI only accept `--expiration=<days>`
     days = (rotation_interval + (token_lifetime / 3600)) / 24
-    # TODO: `days` value might be 0, do we need to set fallback or leave it as is?
     return days
 
 
@@ -290,6 +264,31 @@ def merge_keys(new_keys, old_keys):
         if key.get("exp") > now:
             new_keys["keys"].append(key)
     return new_keys
+
+
+def validate_rotation_check():
+    err = "GLUU_KEY_ROTATION_CHECK must use a valid integer greater than 0"
+
+    try:
+        if int(GLUU_KEY_ROTATION_CHECK) < 1:
+            logger.error(err)
+            sys.exit(1)
+    except ValueError:
+        logger.error(err)
+        sys.exit(1)
+
+
+def validate_rotation_interval():
+    err = "GLUU_KEY_ROTATION_INTERVAL value only support " \
+          "a value of multiplication of 24"
+
+    try:
+        if int(GLUU_KEY_ROTATION_INTERVAL) % 24 != 0:
+            logger.error(err)
+            sys.exit(1)
+    except ValueError:
+        logger.error(err)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
