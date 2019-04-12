@@ -166,9 +166,9 @@ def rotate_keys(user, passwd, inum, jks_pass, jks_fn, jks_dn):
 
             try:
                 new_keys = json.loads(out)
-                conf_webkeys = merge_keys(new_keys, conf_webkeys)
+                merged_webkeys = merge_keys(new_keys, conf_webkeys)
                 ox_modified = modify_oxauth_config(
-                    conn, ox_config.entry_dn, ox_rev, conf_dynamic, conf_webkeys)
+                    conn, ox_config.entry_dn, ox_rev, conf_dynamic, merged_webkeys)
 
                 if all([ox_modified,
                         config_manager.set("oxauth_jks_base64", encode_jks())]):
