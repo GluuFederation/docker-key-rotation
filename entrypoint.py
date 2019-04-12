@@ -78,7 +78,7 @@ def should_rotate_keys():
         return True
 
     # when keys are supposed to be rotated
-    next_rotation = int(last_rotation) + (60 * 60 * GLUU_KEY_ROTATION_INTERVAL)
+    next_rotation = int(last_rotation) + (60 * 60 * int(GLUU_KEY_ROTATION_INTERVAL))
 
     # current timestamp
     now = int(time.time())
@@ -206,7 +206,7 @@ def main():
             except Exception as exc:
                 logger.warn("unable to connect to config backend; "
                             "reason={}".format(exc))
-            time.sleep(GLUU_KEY_ROTATION_CHECK)
+            time.sleep(int(GLUU_KEY_ROTATION_CHECK))
     except KeyboardInterrupt:
         logger.warn("canceled by user; exiting ...")
 
