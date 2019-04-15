@@ -150,7 +150,10 @@ def rotate_keys(user, passwd, inum, jks_pass, jks_fn, jks_dn):
                 "keyStoreSecret": jks_pass,
             })
 
-            conf_webkeys = json.loads(ox_config["oxAuthConfWebKeys"][0])
+            try:
+                conf_webkeys = json.loads(ox_config["oxAuthConfWebKeys"][0])
+            except IndexError:
+                conf_webkeys = {"keys": []}
 
             exp_in_days = get_exp_in_days(
                 int(GLUU_KEY_ROTATION_INTERVAL),
