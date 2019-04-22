@@ -31,6 +31,9 @@ _DEFAULT_CHARS = "".join([string.ascii_uppercase,
                           string.digits,
                           string.lowercase])
 
+SIG_KEYS = "RS256 RS384 RS512 ES256 ES384 ES512"
+ENC_KEYS = "RSA_OAEP RSA1_5"
+
 
 logger = logging.getLogger("key_rotation")
 logger.setLevel(logging.INFO)
@@ -53,15 +56,14 @@ def exec_cmd(cmd):
     return stdout, stderr, retcode
 
 
-def generate_openid_keys(passwd, jks_path, dn, exp=365,
-                         alg="RS256 RS384 RS512 ES256 ES384 ES512"):
+def generate_openid_keys(passwd, jks_path, dn, exp=365):
     cmd = " ".join([
         "java",
         "-jar", "/opt/key-rotation/javalibs/keygen.jar",
-        "-enc_keys", alg,
-        "-sig_keys", alg,
+        "-enc_keys", ENC_KEYS,
+        "-sig_keys", SIG_KEYS,
         "-dnname", "{!r}".format(dn),
-        "-expiration", "{}".format(exp),
+        "-expiration_hours", "{}".format(exp),
         "-keystore", jks_path,
         "-keypasswd", passwd,
     ])
@@ -155,13 +157,10 @@ def rotate_keys(user, passwd, inum, jks_pass, jks_fn, jks_dn):
             except IndexError:
                 conf_webkeys = {"keys": []}
 
-            exp_in_days = get_exp_in_days(
-                int(GLUU_KEY_ROTATION_INTERVAL),
-                conf_dynamic["idTokenLifetime"],
-            )
+            exp_hours = int(GLUU_KEY_ROTATION_INTERVAL) + (conf_dynamic["idTokenLifetime"] / 3600)
 
             out, err, retcode = generate_openid_keys(
-                jks_pass, jks_fn, jks_dn, exp=exp_in_days)
+                jks_pass, jks_fn, jks_dn, exp=exp_hours)
 
             if retcode != 0:
                 logger.error("unable to generate keys; reason={}".format(err))
@@ -221,12 +220,6 @@ def encrypt_text(text, key):
     return base64.b64encode(encrypted_text)
 
 
-def get_exp_in_days(rotation_interval, token_lifetime):
-    # current version of KeyGenerator CLI only accept `--expiration=<days>`
-    days = (rotation_interval + (token_lifetime / 3600)) / 24
-    return days
-
-
 def get_random_chars(size=12, chars=_DEFAULT_CHARS):
     """Generates random characters.
     """
@@ -271,7 +264,6 @@ def merge_keys(new_keys, old_keys):
 
 def validate_rotation_check():
     err = "GLUU_KEY_ROTATION_CHECK must use a valid integer greater than 0"
-
     try:
         if int(GLUU_KEY_ROTATION_CHECK) < 1:
             logger.error(err)
@@ -282,11 +274,9 @@ def validate_rotation_check():
 
 
 def validate_rotation_interval():
-    err = "GLUU_KEY_ROTATION_INTERVAL value only support " \
-          "a value of multiplication of 24"
-
+    err = "GLUU_KEY_ROTATION_INTERVAL must use a valid integer greater than 0"
     try:
-        if int(GLUU_KEY_ROTATION_INTERVAL) % 24 != 0:
+        if int(GLUU_KEY_ROTATION_INTERVAL) < 1:
             logger.error(err)
             sys.exit(1)
     except ValueError:
