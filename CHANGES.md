@@ -2,6 +2,12 @@
 
 Here you can see an overview of changes between each release.
 
+## Version 3.1.5_03
+
+Released on April 23rd, 2019.
+
+* Fixed usage on KeyGenerator CLI call. Issue: https://github.com/GluuFederation/docker-key-rotation/issues/4.
+
 ## Version 3.1.5_02
 
 Released on April 9th, 2019.
