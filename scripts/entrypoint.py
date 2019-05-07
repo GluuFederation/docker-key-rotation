@@ -120,7 +120,7 @@ def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
     return encoded_jks
 
 
-def rotate_keys(user, passwd, inum, jks_pass, jks_fn, jks_dn):
+def rotate_keys(user, passwd, jks_pass, jks_fn, jks_dn):
     try:
         logger.info("connecting to server {}".format(GLUU_LDAP_URL))
 
@@ -128,7 +128,7 @@ def rotate_keys(user, passwd, inum, jks_pass, jks_fn, jks_dn):
 
         with Connection(ldap_server, user, passwd) as conn:
             # get oxAuth config from LDAP
-            ox_config = get_oxauth_config(conn, inum)
+            ox_config = get_oxauth_config(conn)
 
             if not ox_config:
                 # search failed due to missing entry
@@ -188,7 +188,6 @@ def main():
     validate_rotation_check()
     validate_rotation_interval()
 
-    inum = manager.config.get("inumAppliance")
     user = manager.config.get("ldap_binddn")
     passwd = decrypt_text(manager.secret.get("encoded_ox_ldap_pw"),
                           manager.secret.get("encoded_salt"))
@@ -202,7 +201,7 @@ def main():
 
             try:
                 if should_rotate_keys():
-                    rotate_keys(user, passwd, inum, jks_pass, jks_fn, jks_dn)
+                    rotate_keys(user, passwd, jks_pass, jks_fn, jks_dn)
                 else:
                     logger.info("no need to rotate keys at the moment")
             except Exception as exc:
@@ -226,13 +225,11 @@ def get_random_chars(size=12, chars=_DEFAULT_CHARS):
     return ''.join(random.choice(chars) for _ in range(size))
 
 
-def get_oxauth_config(conn, inum):
+def get_oxauth_config(conn):
     # base DN for oxAuth config
     oxauth_base = ",".join([
         "ou=oxauth",
         "ou=configuration",
-        "inum={}".format(inum),
-        "ou=appliances",
         "o=gluu",
     ])
 
