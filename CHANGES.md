@@ -2,6 +2,12 @@
 
 Here you can see an overview of changes between each release.
 
+## Version 3.1.6_03
+
+Released on July 4th, 2019.
+
+* Upgraded `oxauth-client` to 3.1.6.sp2.
+
 ## Version 3.1.6_02
 
 Released on May 10th, 2019.
