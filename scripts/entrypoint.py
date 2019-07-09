@@ -268,7 +268,15 @@ class KeyRotator(object):
             logger.warn("unable to get public keys; reason={}".format(exc))
 
 
-class LDAPBackend(object):
+class BaseBackend(object):
+    def get_oxauth_config(self):
+        raise NotImplementedError
+
+    def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
+        raise NotImplementedError
+
+
+class LDAPBackend(BaseBackend):
     def __init__(self, host, user, password):
         ldap_server = Server(GLUU_LDAP_URL, port=1636, use_ssl=True)
         self.backend = Connection(ldap_server, user, password)
@@ -318,7 +326,7 @@ class LDAPBackend(object):
             return result == "success"
 
 
-class CouchbaseBackend(object):
+class CouchbaseBackend(BaseBackend):
     def __init__(self, host, user, password):
         self.backend = CBM(host, user, password)
 
