@@ -14,7 +14,6 @@ from ldap3 import Connection
 from ldap3 import Server
 from ldap3 import BASE
 from ldap3 import MODIFY_REPLACE
-# from ldap3.core.exceptions import LDAPSocketOpenError
 
 from cbm import CBM
 from gluulib import get_manager
@@ -36,10 +35,10 @@ SIG_KEYS = "RS256 RS384 RS512 ES256 ES384 ES512"
 ENC_KEYS = "RSA_OAEP RSA1_5"
 
 
-logger = logging.getLogger("key_rotation")
+logger = logging.getLogger("entrypoint")
 logger.setLevel(logging.INFO)
 ch = logging.StreamHandler()
-fmt = logging.Formatter('%(levelname)s - %(asctime)s - %(message)s')
+fmt = logging.Formatter('%(levelname)s - %(name)s - %(asctime)s - %(message)s')
 ch.setFormatter(fmt)
 logger.addHandler(ch)
 
@@ -87,70 +86,6 @@ def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
     return encoded_jks
 
 
-# def rotate_keys(user, passwd, jks_pass, jks_fn, jks_dn):
-#     try:
-#         logger.info("connecting to server {}".format(GLUU_LDAP_URL))
-
-#         ldap_server = Server(GLUU_LDAP_URL, port=1636, use_ssl=True)
-
-#         with Connection(ldap_server, user, passwd) as conn:
-#             # get oxAuth config from LDAP
-#             ox_config = get_oxauth_config(conn)
-
-#             if not ox_config:
-#                 # search failed due to missing entry
-#                 logger.warn("unable to find oxAuth config")
-#                 return
-
-#             ox_rev = int(ox_config["oxRevision"][0])
-
-#             conf_dynamic = json.loads(ox_config["oxAuthConfDynamic"][0])
-
-#             if conf_dynamic["keyRegenerationEnabled"]:
-#                 logger.warn("keyRegenerationEnabled config was set to true; "
-#                             "skipping proccess to avoid conflict with "
-#                             "builtin key rotation feature in oxAuth")
-#                 return
-
-#             conf_dynamic.update({
-#                 "keyRegenerationEnabled": False,  # always set to False
-#                 "keyRegenerationInterval": int(GLUU_KEY_ROTATION_INTERVAL),
-#                 "webKeysStorage": "keystore",
-#                 "keyStoreSecret": jks_pass,
-#             })
-
-#             try:
-#                 conf_webkeys = json.loads(ox_config["oxAuthConfWebKeys"][0])
-#             except IndexError:
-#                 conf_webkeys = {"keys": []}
-
-#             exp_hours = int(GLUU_KEY_ROTATION_INTERVAL) + (conf_dynamic["idTokenLifetime"] / 3600)
-
-#             out, err, retcode = generate_openid_keys(
-#                 jks_pass, jks_fn, jks_dn, exp=exp_hours)
-
-#             if retcode != 0:
-#                 logger.error("unable to generate keys; reason={}".format(err))
-#                 return
-
-#             try:
-#                 new_keys = json.loads(out)
-#                 merged_webkeys = merge_keys(new_keys, conf_webkeys)
-#                 ox_modified = modify_oxauth_config(
-#                     conn, ox_config.entry_dn, ox_rev, conf_dynamic, merged_webkeys)
-
-#                 if all([ox_modified,
-#                         manager.secret.set("oxauth_jks_base64", encode_jks())]):
-#                     manager.config.set("oxauth_key_rotated_at", int(time.time()))
-#                     logger.info("keys have been rotated")
-#             except (TypeError, ValueError) as exc:
-#                 logger.warn("unable to get public keys; reason={}".format(exc))
-#     # cant connect to LDAP
-#     except LDAPSocketOpenError as exc:
-#         logger.warn("Unable to connect to LDAP at {}; reason={}".format(
-#             GLUU_LDAP_URL, exc))
-
-
 def main():
     validate_rotation_check()
     validate_rotation_interval()
@@ -169,8 +104,7 @@ def main():
                 else:
                     logger.info("no need to rotate keys at the moment")
             except Exception as exc:
-                logger.warn("unable to connect to config backend; "
-                            "reason={}".format(exc))
+                logger.warn("unable to rotate keys; reason={}".format(exc))
             time.sleep(int(GLUU_KEY_ROTATION_CHECK))
     except KeyboardInterrupt:
         logger.warn("canceled by user; exiting ...")
@@ -302,7 +236,7 @@ class KeyRotator(object):
 
         try:
             conf_webkeys = json.loads(config["oxAuthConfWebKeys"])
-        except IndexError:
+        except (KeyError, IndexError):
             conf_webkeys = {"keys": []}
 
         exp_hours = int(self.rotation_interval) + (conf_dynamic["idTokenLifetime"] / 3600)
@@ -318,8 +252,12 @@ class KeyRotator(object):
             merged_webkeys = merge_keys(new_keys, conf_webkeys)
 
             logger.info("modifying oxAuth configuration")
+
             ox_modified = self.backend.modify_oxauth_config(
-                config["id"], ox_rev, conf_dynamic, merged_webkeys,
+                config["id"],
+                str(ox_rev + 1),
+                json.dumps(conf_dynamic),
+                json.dumps(merged_webkeys),
             )
 
             if all([ox_modified,
@@ -369,15 +307,11 @@ class LDAPBackend(object):
             return config
 
     def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
-        serialized_keys_conf = json.dumps(conf_webkeys)
-        serialized_dyn_conf = json.dumps(conf_dynamic)
-        ox_rev = str(ox_rev + 1)
-
         with self.backend as conn:
             conn.modify(id_, {
                 'oxRevision': [(MODIFY_REPLACE, [ox_rev])],
-                'oxAuthConfWebKeys': [(MODIFY_REPLACE, [serialized_keys_conf])],
-                'oxAuthConfDynamic': [(MODIFY_REPLACE, [serialized_dyn_conf])],
+                'oxAuthConfWebKeys': [(MODIFY_REPLACE, [conf_webkeys])],
+                'oxAuthConfDynamic': [(MODIFY_REPLACE, [conf_dynamic])],
             })
 
             result = conn.result["description"]
@@ -392,7 +326,7 @@ class CouchbaseBackend(object):
         req = self.backend.exec_query(
             "SELECT oxRevision, oxAuthConfDynamic, oxAuthConfWebKeys "
             "FROM `gluu` "
-            "USE KEYS ['configuration_oxauth']",
+            "USE KEYS 'configuration_oxauth'",
         )
         if not req.ok:
             return {}
@@ -406,16 +340,12 @@ class CouchbaseBackend(object):
         return config
 
     def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
-        serialized_keys_conf = json.dumps(conf_webkeys)
-        serialized_dyn_conf = json.dumps(conf_dynamic)
-        ox_rev = str(ox_rev + 1)
-
         req = self.backend.exec_query(
             "UPDATE `gluu` "
             "USE KEYS '{0}' "
-            "SET oxRevision='{1}', oxAuthConfDynamic='{2}', oxAuthConfWebKeys={3} "
+            "SET oxRevision='{1}', oxAuthConfDynamic='{2}', oxAuthConfWebKeys='{3}' "
             "RETURNING oxRevision".format(
-                id_, ox_rev, serialized_dyn_conf, serialized_keys_conf,
+                id_, ox_rev, conf_dynamic, conf_webkeys,
             )
         )
 
