@@ -17,7 +17,7 @@ RUN apk update && apk add --no-cache \
 # =============
 
 ENV OX_VERSION 4.0.0-SNAPSHOT
-ENV OX_BUILD_DATE 2019-05-07
+ENV OX_BUILD_DATE 2019-07-08
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /opt/key-rotation/javalibs \

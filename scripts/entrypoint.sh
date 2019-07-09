@@ -11,6 +11,29 @@ cat << LICENSE_ACK
 
 LICENSE_ACK
 
+# @TODO: enable wait_for
+# # check persistence type
+# case "${GLUU_PERSISTENCE_TYPE}" in
+#     ldap|couchbase|hybrid)
+#         ;;
+#     *)
+#         echo "unsupported GLUU_PERSISTENCE_TYPE value; please choose 'ldap', 'couchbase', or 'hybrid'"
+#         exit 1
+#         ;;
+# esac
+
+# # check mapping used by LDAP
+# if [ "${GLUU_PERSISTENCE_TYPE}" = "hybrid" ]; then
+#     case "${GLUU_PERSISTENCE_LDAP_MAPPING}" in
+#         default|user|cache|site|statistic)
+#             ;;
+#         *)
+#             echo "unsupported GLUU_PERSISTENCE_LDAP_MAPPING value; please choose 'default', 'user', 'cache', 'site', or 'statistic'"
+#             exit 1
+#             ;;
+#     esac
+# fi
+
 if [ -f /etc/redhat-release ]; then
     source scl_source enable python27 && python /opt/key-rotation/scripts/entrypoint.py
 else
