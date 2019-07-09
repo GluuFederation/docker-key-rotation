@@ -1,22 +1,37 @@
 import argparse
 import base64
+import json
 import logging
 import os
-import re
+import random
 import sys
 import time
 
 import ldap3
 import pyDes
 
+from cbm import CBM
 from gluulib import get_manager
 
 logger = logging.getLogger("wait_for")
 logger.setLevel(logging.INFO)
 ch = logging.StreamHandler()
-fmt = logging.Formatter('%(levelname)s - %(asctime)s - %(message)s')
+fmt = logging.Formatter('%(levelname)s - %(name)s - %(asctime)s - %(message)s')
 ch.setFormatter(fmt)
 logger.addHandler(ch)
+
+
+def decode_password(manager, password_key, salt_key):
+    encoded_password = manager.secret.get(password_key)
+    encoded_salt = manager.secret.get(salt_key)
+
+    cipher = pyDes.triple_des(
+        b"{}".format(encoded_salt),
+        pyDes.ECB,
+        padmode=pyDes.PAD_PKCS5
+    )
+    encrypted_text = b"{}".format(base64.b64decode(encoded_password))
+    return cipher.decrypt(encrypted_text)
 
 
 def wait_for_config(manager, max_wait_time, sleep_duration):
@@ -55,40 +70,12 @@ def wait_for_secret(manager, max_wait_time, sleep_duration):
     sys.exit(1)
 
 
-def get_ldap_password(manager):
-    encoded_password = ""
-    encoded_salt = ""
-
-    try:
-        with open("/etc/gluu/conf/ox-ldap.properties") as f:
-            txt = f.read()
-            result = re.findall("bindPassword: (.+)", txt)
-            if result:
-                encoded_password = result[0]
-    except IOError:
-        encoded_password = manager.secret.get("encoded_ox_ldap_pw")
-
-    try:
-        with open("/etc/gluu/conf/salt") as f:
-            txt = f.read()
-            encoded_salt = txt.split("=")[-1].strip()
-    except IOError:
-        encoded_salt = manager.secret.get("encoded_salt")
-
-    cipher = pyDes.triple_des(
-        b"{}".format(encoded_salt),
-        pyDes.ECB,
-        padmode=pyDes.PAD_PKCS5
-    )
-    encrypted_text = b"{}".format(base64.b64decode(encoded_password))
-    return cipher.decrypt(encrypted_text)
-
-
 def wait_for_ldap(manager, max_wait_time, sleep_duration):
     GLUU_LDAP_URL = os.environ.get("GLUU_LDAP_URL", "localhost:1636")
+    GLUU_PERSISTENCE_LDAP_MAPPING = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
 
     ldap_bind_dn = manager.config.get("ldap_binddn")
-    ldap_password = get_ldap_password(manager)
+    ldap_password = decode_password(manager, "encoded_ox_ldap_pw", "encoded_salt")
 
     ldap_host = GLUU_LDAP_URL.split(":")[0]
     ldap_port = int(GLUU_LDAP_URL.split(":")[1])
@@ -98,14 +85,19 @@ def wait_for_ldap(manager, max_wait_time, sleep_duration):
         ldap_port,
         use_ssl=True
     )
-    logger.info(
-        "LDAP trying ldaps://" + str(GLUU_LDAP_URL) +
-        " ldap_bind_dn=" + ldap_bind_dn
-    )
 
     # check the entries few times, to ensure OpenDJ is running after importing
     # initial data; this may not required for OpenLDAP
     successive_entries_check = 0
+
+    search_base_mapping = {
+        "default": "o=gluu",
+        "user": "o=gluu",
+        "site": "o=site",
+        "cache": "o=gluu",
+        "statistic": "o=metric",
+    }
+    search_base = search_base_mapping[GLUU_PERSISTENCE_LDAP_MAPPING]
 
     for i in range(0, max_wait_time, sleep_duration):
         try:
@@ -115,28 +107,80 @@ def wait_for_ldap(manager, max_wait_time, sleep_duration):
                     ldap_password) as ldap_connection:
 
                 ldap_connection.search(
-                    search_base="o=gluu",
-                    search_filter="(oxScopeType=openid)",
+                    search_base=search_base,
+                    search_filter="(objectClass=*)",
                     search_scope=ldap3.SUBTREE,
-                    attributes=['*']
+                    attributes=['objectClass'],
+                    size_limit=1,
                 )
-
-                if successive_entries_check >= 3:
-                    logger.info("LDAP is up and populated :-)")
-                    return 0
 
                 if ldap_connection.entries:
                     successive_entries_check += 1
 
+                if successive_entries_check >= 3:
+                    logger.info("LDAP is ready")
+                    return
+                reason = "LDAP is not initialized yet"
         except Exception as exc:
-            logger.warn(
-                "LDAP not yet initialised: {}; retrying in {} seconds".format(
-                    exc, sleep_duration,
-                )
-            )
+            reason = exc
+
+        logger.warn("LDAP backend is not ready; reason={}; "
+                    "retrying in {} seconds.".format(reason, sleep_duration))
         time.sleep(sleep_duration)
 
     logger.error("LDAP not ready, after " + str(max_wait_time) + " seconds.")
+    sys.exit(1)
+
+
+def check_couchbase_document(cbm):
+    persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
+    ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
+    checked = True
+    error = ""
+    bucket = "gluu"
+
+    if persistence_type == "hybrid":
+        req = cbm.get_buckets()
+        if not req.ok:
+            checked = False
+            error = json.loads(req.text)["errors"][0]["msg"]
+            return checked, error
+
+        bucket = random.choice([
+            _bucket["name"] for _bucket in req.json()
+            if _bucket["name"] != ldap_mapping
+        ])
+
+    query = "SELECT COUNT(*) FROM `{}`".format(bucket)
+    req = cbm.exec_query(query)
+    if not req.ok:
+        checked = False
+        error = json.loads(req.text)["errors"][0]["msg"]
+    return checked, error
+
+
+def wait_for_couchbase(manager, max_wait_time, sleep_duration):
+    hostname = os.environ.get("GLUU_COUCHBASE_URL", "localhost")
+    user = manager.config.get("couchbase_server_user")
+    cbm = CBM(hostname, user, decode_password(
+        manager, "encoded_couchbase_server_pw", "encoded_salt",
+    ))
+
+    for i in range(0, max_wait_time, sleep_duration):
+        try:
+            checked, error = check_couchbase_document(cbm)
+            if checked:
+                logger.info("Couchbase is ready")
+                return
+            reason = error
+        except Exception as exc:
+            reason = exc
+
+        logger.warn("Couchbase backend is not ready; reason={}; "
+                    "retrying in {} seconds.".format(reason, sleep_duration))
+        time.sleep(sleep_duration)
+
+    logger.error("Couchbase backend is not ready after {} seconds.".format(max_wait_time))
     sys.exit(1)
 
 
@@ -161,6 +205,9 @@ def wait_for(manager, deps=None):
 
     if "ldap" in deps:
         wait_for_ldap(manager, max_wait_time, sleep_duration)
+
+    if "couchbase" in deps:
+        wait_for_couchbase(manager, max_wait_time, sleep_duration)
 
 
 if __name__ == "__main__":
