@@ -17,7 +17,7 @@ RUN apk update && apk add --no-cache \
 # =============
 
 ENV OX_VERSION 4.0.0-SNAPSHOT
-ENV OX_BUILD_DATE 2019-07-08
+ENV OX_BUILD_DATE 2019-07-10
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /opt/key-rotation/javalibs \
@@ -82,11 +82,22 @@ ENV GLUU_SECRET_KUBERNETES_NAMESPACE default
 ENV GLUU_SECRET_KUBERNETES_SECRET gluu
 ENV GLUU_SECRET_KUBERNETES_USE_KUBE_CONFIG false
 
+# ===============
+# Persistence ENV
+# ===============
+
+# available options: couchbase, ldap, hybrid
+ENV GLUU_PERSISTENCE_TYPE ldap
+# only takes affect when GLUU_PERSISTENCE_TYPE is hybrid
+# available options: default, user, cache, site, statistic
+ENV GLUU_PERSISTENCE_LDAP_MAPPING default
+ENV GLUU_COUCHBASE_URL localhost
+ENV GLUU_LDAP_URL localhost:1636
+
 # ===========
 # Generic ENV
 # ===========
 
-ENV GLUU_LDAP_URL localhost:1636
 ENV GLUU_KEY_ROTATION_INTERVAL 48
 ENV GLUU_KEY_ROTATION_CHECK 3600
 ENV GLUU_WAIT_MAX_TIME 300
