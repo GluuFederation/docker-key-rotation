@@ -10,7 +10,8 @@ RUN apk update && apk add --no-cache \
     openssl \
     py-pip \
     wget \
-    shadow
+    shadow \
+    git
 
 # =============
 # oxAuth client

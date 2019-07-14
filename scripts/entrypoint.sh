@@ -44,9 +44,9 @@ else
 fi
 
 if [ -f /etc/redhat-release ]; then
-    source scl_source enable python27 && python /opt/key-rotation/wait_for.py --deps="$deps"
+    source scl_source enable python27 && gluu-wait --deps="$deps"
     source scl_source enable python27 && python /opt/key-rotation/scripts/entrypoint.py
 else
-    python /opt/key-rotation/scripts/wait_for.py --deps="$deps"
+    gluu-wait --deps="$deps"
     python /opt/key-rotation/scripts/entrypoint.py
 fi

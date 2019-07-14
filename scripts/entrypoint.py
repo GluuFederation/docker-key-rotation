@@ -1,22 +1,23 @@
-import base64
 import json
 import logging
+import logging.config
 import os
-import random
-import shlex
-import string
-import subprocess
 import sys
 import time
 
-import pyDes
 from ldap3 import Connection
 from ldap3 import Server
 from ldap3 import BASE
 from ldap3 import MODIFY_REPLACE
 
+from pygluu.containerlib import get_manager
+from pygluu.containerlib.utils import decode_text
+from pygluu.containerlib.utils import encode_text
+from pygluu.containerlib.utils import exec_cmd
+from pygluu.containerlib.utils import get_random_chars
+
 from cbm import CBM
-from gluulib import get_manager
+from settings import LOGGING_CONFIG
 
 GLUU_LDAP_URL = os.environ.get("GLUU_LDAP_URL", "localhost:1636")
 
@@ -26,34 +27,14 @@ GLUU_KEY_ROTATION_INTERVAL = os.environ.get("GLUU_KEY_ROTATION_INTERVAL", 48)
 # check interval (by default per 1 hour)
 GLUU_KEY_ROTATION_CHECK = os.environ.get("GLUU_KEY_ROTATION_CHECK", 60 * 60)
 
-# Default charset
-_DEFAULT_CHARS = "".join([string.ascii_uppercase,
-                          string.digits,
-                          string.lowercase])
-
 SIG_KEYS = "RS256 RS384 RS512 ES256 ES384 ES512"
 ENC_KEYS = "RSA_OAEP RSA1_5"
 
 
+logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("entrypoint")
-logger.setLevel(logging.INFO)
-ch = logging.StreamHandler()
-fmt = logging.Formatter('%(levelname)s - %(name)s - %(asctime)s - %(message)s')
-ch.setFormatter(fmt)
-logger.addHandler(ch)
 
 manager = get_manager()
-
-
-def exec_cmd(cmd):
-    args = shlex.split(cmd)
-    popen = subprocess.Popen(args,
-                             stdin=subprocess.PIPE,
-                             stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE)
-    stdout, stderr = popen.communicate()
-    retcode = popen.returncode
-    return stdout, stderr, retcode
 
 
 def generate_openid_keys(passwd, jks_path, dn, exp=365):
@@ -72,17 +53,10 @@ def generate_openid_keys(passwd, jks_path, dn, exp=365):
     return out, err, retcode
 
 
-def decrypt_text(encrypted_text, key):
-    cipher = pyDes.triple_des(b"{}".format(key), pyDes.ECB,
-                              padmode=pyDes.PAD_PKCS5)
-    encrypted_text = b"{}".format(base64.b64decode(encrypted_text))
-    return cipher.decrypt(encrypted_text)
-
-
 def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
     encoded_jks = ""
     with open(jks, "rb") as fd:
-        encoded_jks = encrypt_text(fd.read(), manager.secret.get("encoded_salt"))
+        encoded_jks = encode_text(fd.read(), manager.secret.get("encoded_salt"))
     return encoded_jks
 
 
@@ -108,19 +82,6 @@ def main():
             time.sleep(int(GLUU_KEY_ROTATION_CHECK))
     except KeyboardInterrupt:
         logger.warn("canceled by user; exiting ...")
-
-
-def encrypt_text(text, key):
-    cipher = pyDes.triple_des(b"{}".format(key), pyDes.ECB,
-                              padmode=pyDes.PAD_PKCS5)
-    encrypted_text = cipher.encrypt(b"{}".format(text))
-    return base64.b64encode(encrypted_text)
-
-
-def get_random_chars(size=12, chars=_DEFAULT_CHARS):
-    """Generates random characters.
-    """
-    return ''.join(random.choice(chars) for _ in range(size))
 
 
 def merge_keys(new_keys, old_keys):
@@ -171,7 +132,7 @@ class KeyRotator(object):
         if backend_type == "ldap":
             host = os.environ.get("GLUU_LDAP_URL", "localhost:1636")
             user = manager.config.get("ldap_binddn")
-            password = decrypt_text(
+            password = decode_text(
                 manager.secret.get("encoded_ox_ldap_pw"),
                 manager.secret.get("encoded_salt"),
             )
@@ -179,7 +140,7 @@ class KeyRotator(object):
         else:
             host = os.environ.get("GLUU_COUCHBASE_URL", "localhost")
             user = manager.config.get("couchbase_server_user")
-            password = decrypt_text(
+            password = decode_text(
                 manager.secret.get("encoded_couchbase_server_pw"),
                 manager.secret.get("encoded_salt"),
             )
