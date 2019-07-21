@@ -37,83 +37,97 @@ logger = logging.getLogger("entrypoint")
 manager = get_manager()
 
 
-def generate_openid_keys(passwd, jks_path, dn, exp=365):
-    cmd = " ".join([
-        "java",
-        "-jar", "/opt/key-rotation/javalibs/keygen.jar",
-        "-enc_keys", ENC_KEYS,
-        "-sig_keys", SIG_KEYS,
-        "-dnname", "{!r}".format(dn),
-        "-expiration_hours", "{}".format(exp),
-        "-keystore", jks_path,
-        "-keypasswd", passwd,
-    ])
+class BaseBackend(object):
+    def get_oxauth_config(self):
+        raise NotImplementedError
 
-    out, err, retcode = exec_cmd(cmd)
-    return out, err, retcode
+    def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
+        raise NotImplementedError
 
 
-def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
-    encoded_jks = ""
-    with open(jks, "rb") as fd:
-        encoded_jks = encode_text(fd.read(), manager.secret.get("encoded_salt"))
-    return encoded_jks
+class LDAPBackend(BaseBackend):
+    def __init__(self, host, user, password):
+        ldap_server = Server(GLUU_LDAP_URL, port=1636, use_ssl=True)
+        self.backend = Connection(ldap_server, user, password)
+
+    def get_oxauth_config(self):
+        # base DN for oxAuth config
+        oxauth_base = ",".join([
+            "ou=oxauth",
+            "ou=configuration",
+            "o=gluu",
+        ])
+
+        with self.backend as conn:
+            conn.search(
+                search_base=oxauth_base,
+                search_filter="(objectClass=*)",
+                search_scope=BASE,
+                attributes=[
+                    "oxRevision",
+                    "oxAuthConfWebKeys",
+                    "oxAuthConfDynamic",
+                ]
+            )
+
+            if not conn.entries:
+                return {}
+
+            entry = conn.entries[0]
+
+            config = {
+                "id": entry.entry_dn,
+                "oxRevision": entry["oxRevision"][0],
+                "oxAuthConfWebKeys": entry["oxAuthConfWebKeys"][0],
+                "oxAuthConfDynamic": entry["oxAuthConfDynamic"][0],
+            }
+            return config
+
+    def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
+        with self.backend as conn:
+            conn.modify(id_, {
+                'oxRevision': [(MODIFY_REPLACE, [ox_rev])],
+                'oxAuthConfWebKeys': [(MODIFY_REPLACE, [conf_webkeys])],
+                'oxAuthConfDynamic': [(MODIFY_REPLACE, [conf_dynamic])],
+            })
+
+            result = conn.result["description"]
+            return result == "success"
 
 
-def main():
-    validate_rotation_check()
-    validate_rotation_interval()
+class CouchbaseBackend(BaseBackend):
+    def __init__(self, host, user, password):
+        self.backend = CBM(host, user, password)
 
-    persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
-    ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
-    rotator = KeyRotator(manager, persistence_type, ldap_mapping, GLUU_KEY_ROTATION_INTERVAL)
+    def get_oxauth_config(self):
+        req = self.backend.exec_query(
+            "SELECT oxRevision, oxAuthConfDynamic, oxAuthConfWebKeys "
+            "FROM `gluu` "
+            "USE KEYS 'configuration_oxauth'",
+        )
+        if not req.ok:
+            return {}
 
-    try:
-        while True:
-            logger.info("checking whether key should be rotated")
+        config = req.json()["results"][0]
 
-            try:
-                if rotator.should_rotate():
-                    rotator.rotate()
-                else:
-                    logger.info("no need to rotate keys at the moment")
-            except Exception as exc:
-                logger.warn("unable to rotate keys; reason={}".format(exc))
-            time.sleep(int(GLUU_KEY_ROTATION_CHECK))
-    except KeyboardInterrupt:
-        logger.warn("canceled by user; exiting ...")
+        if not config:
+            return {}
 
+        config.update({"id": "configuration_oxauth"})
+        return config
 
-def merge_keys(new_keys, old_keys):
-    """Merges new and old keys while omitting expired key.
-    """
-    now = int(time.time() * 1000)
-    for key in old_keys["keys"]:
-        if key.get("exp") > now:
-            new_keys["keys"].append(key)
-    return new_keys
+    def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
+        req = self.backend.exec_query(
+            "UPDATE `gluu` "
+            "USE KEYS '{0}' "
+            "SET oxRevision='{1}', oxAuthConfDynamic='{2}', oxAuthConfWebKeys='{3}' "
+            "RETURNING oxRevision".format(
+                id_, ox_rev, conf_dynamic, conf_webkeys,
+            )
+        )
 
-
-def validate_rotation_check():
-    err = "GLUU_KEY_ROTATION_CHECK must use a valid integer greater than 0"
-    try:
-        if int(GLUU_KEY_ROTATION_CHECK) < 1:
-            logger.error(err)
-            sys.exit(1)
-    except ValueError:
-        logger.error(err)
-        sys.exit(1)
-
-
-def validate_rotation_interval():
-    err = "GLUU_KEY_ROTATION_INTERVAL must use a valid integer greater than 0"
-    try:
-        if int(GLUU_KEY_ROTATION_INTERVAL) < 1:
-            logger.error(err)
-            sys.exit(1)
-    except ValueError:
-        logger.error(err)
-        sys.exit(1)
+        if not req.ok:
+            return False
 
 
 class KeyRotator(object):
@@ -227,100 +241,96 @@ class KeyRotator(object):
                 logger.info("keys have been rotated")
         except (TypeError, ValueError) as exc:
             logger.warn("unable to get public keys; reason={}".format(exc))
-
-
-class BaseBackend(object):
-    def get_oxauth_config(self):
-        raise NotImplementedError
-
-    def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
-        raise NotImplementedError
-
-
-class LDAPBackend(BaseBackend):
-    def __init__(self, host, user, password):
-        ldap_server = Server(GLUU_LDAP_URL, port=1636, use_ssl=True)
-        self.backend = Connection(ldap_server, user, password)
-
-    def get_oxauth_config(self):
-        # base DN for oxAuth config
-        oxauth_base = ",".join([
-            "ou=oxauth",
-            "ou=configuration",
-            "o=gluu",
-        ])
-
-        with self.backend as conn:
-            conn.search(
-                search_base=oxauth_base,
-                search_filter="(objectClass=*)",
-                search_scope=BASE,
-                attributes=[
-                    "oxRevision",
-                    "oxAuthConfWebKeys",
-                    "oxAuthConfDynamic",
-                ]
-            )
-
-            if not conn.entries:
-                return {}
-
-            entry = conn.entries[0]
-
-            config = {
-                "id": entry.entry_dn,
-                "oxRevision": entry["oxRevision"][0],
-                "oxAuthConfWebKeys": entry["oxAuthConfWebKeys"][0],
-                "oxAuthConfDynamic": entry["oxAuthConfDynamic"][0],
-            }
-            return config
-
-    def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
-        with self.backend as conn:
-            conn.modify(id_, {
-                'oxRevision': [(MODIFY_REPLACE, [ox_rev])],
-                'oxAuthConfWebKeys': [(MODIFY_REPLACE, [conf_webkeys])],
-                'oxAuthConfDynamic': [(MODIFY_REPLACE, [conf_dynamic])],
-            })
-
-            result = conn.result["description"]
-            return result == "success"
-
-
-class CouchbaseBackend(BaseBackend):
-    def __init__(self, host, user, password):
-        self.backend = CBM(host, user, password)
-
-    def get_oxauth_config(self):
-        req = self.backend.exec_query(
-            "SELECT oxRevision, oxAuthConfDynamic, oxAuthConfWebKeys "
-            "FROM `gluu` "
-            "USE KEYS 'configuration_oxauth'",
-        )
-        if not req.ok:
-            return {}
-
-        config = req.json()["results"][0]
-
-        if not config:
-            return {}
-
-        config.update({"id": "configuration_oxauth"})
-        return config
-
-    def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
-        req = self.backend.exec_query(
-            "UPDATE `gluu` "
-            "USE KEYS '{0}' "
-            "SET oxRevision='{1}', oxAuthConfDynamic='{2}', oxAuthConfWebKeys='{3}' "
-            "RETURNING oxRevision".format(
-                id_, ox_rev, conf_dynamic, conf_webkeys,
-            )
-        )
-
-        if not req.ok:
-            return False
         return True
+
+
+def generate_openid_keys(passwd, jks_path, dn, exp=365):
+    cmd = " ".join([
+        "java",
+        "-Dlog4j.defaultInitOverride=true",
+        "-jar", "/opt/key-rotation/javalibs/keygen.jar",
+        "-enc_keys", ENC_KEYS,
+        "-sig_keys", SIG_KEYS,
+        "-dnname", "{!r}".format(dn),
+        "-expiration_hours", "{}".format(exp),
+        "-keystore", jks_path,
+        "-keypasswd", passwd,
+    ])
+
+    out, err, retcode = exec_cmd(cmd)
+    if retcode == 0:
+        # v4 KeyGenerator class returns non JSON-friendly string
+        # the first line is a string of Java WARNING
+        # `WARNING: sun.reflect.Reflection.getCallerClass is not supported.`
+        exploded = out.splitlines()
+        # skip first line if it contains Java WARNING
+        if exploded[0].startswith("WARNING"):
+            del exploded[0]
+        out = "\n".join(exploded)
+    return out, err, retcode
+
+
+def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
+    encoded_jks = ""
+    with open(jks, "rb") as fd:
+        encoded_jks = encode_text(fd.read(), manager.secret.get("encoded_salt"))
+    return encoded_jks
+
+
+def main():
+    validate_rotation_check()
+    validate_rotation_interval()
+
+    persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
+    ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
+    rotator = KeyRotator(manager, persistence_type, ldap_mapping, GLUU_KEY_ROTATION_INTERVAL)
+
+    try:
+        while True:
+            logger.info("checking whether key should be rotated")
+
+            try:
+                if rotator.should_rotate():
+                    rotator.rotate()
+                else:
+                    logger.info("no need to rotate keys at the moment")
+            except Exception as exc:
+                logger.warn("unable to rotate keys; reason={}".format(exc))
+            time.sleep(int(GLUU_KEY_ROTATION_CHECK))
+    except KeyboardInterrupt:
+        logger.warn("canceled by user; exiting ...")
+
+
+def merge_keys(new_keys, old_keys):
+    """Merges new and old keys while omitting expired key.
+    """
+    now = int(time.time() * 1000)
+    for key in old_keys["keys"]:
+        if key.get("exp") > now:
+            new_keys["keys"].append(key)
+    return new_keys
+
+
+def validate_rotation_check():
+    err = "GLUU_KEY_ROTATION_CHECK must use a valid integer greater than 0"
+    try:
+        if int(GLUU_KEY_ROTATION_CHECK) < 1:
+            logger.error(err)
+            sys.exit(1)
+    except ValueError:
+        logger.error(err)
+        sys.exit(1)
+
+
+def validate_rotation_interval():
+    err = "GLUU_KEY_ROTATION_INTERVAL must use a valid integer greater than 0"
+    try:
+        if int(GLUU_KEY_ROTATION_INTERVAL) < 1:
+            logger.error(err)
+            sys.exit(1)
+    except ValueError:
+        logger.error(err)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
