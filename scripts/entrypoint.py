@@ -256,18 +256,7 @@ def generate_openid_keys(passwd, jks_path, dn, exp=365):
         "-keystore", jks_path,
         "-keypasswd", passwd,
     ])
-
-    out, err, retcode = exec_cmd(cmd)
-    if retcode == 0:
-        # v4 KeyGenerator class returns non JSON-friendly string
-        # the first line is a string of Java WARNING
-        # `WARNING: sun.reflect.Reflection.getCallerClass is not supported.`
-        exploded = out.splitlines()
-        # skip first line if it contains Java WARNING
-        if exploded[0].startswith("WARNING"):
-            del exploded[0]
-        out = "\n".join(exploded)
-    return out, err, retcode
+    return exec_cmd(cmd)
 
 
 def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
