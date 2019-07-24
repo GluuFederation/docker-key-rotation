@@ -1,4 +1,4 @@
-FROM adoptopenjdk/openjdk11:jre-11.0.4_11-alpine
+FROM openjdk:8-jre-alpine3.9
 
 LABEL maintainer="Gluu Inc. <support@gluu.org>"
 
