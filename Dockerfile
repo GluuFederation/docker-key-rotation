@@ -1,7 +1,5 @@
 FROM openjdk:8-jre-alpine3.9
 
-LABEL maintainer="Gluu Inc. <support@gluu.org>"
-
 # ===============
 # Alpine packages
 # ===============
@@ -17,12 +15,12 @@ RUN apk update && apk add --no-cache \
 # oxAuth client
 # =============
 
-ENV OX_VERSION=4.0.b1 \
-    OX_BUILD_DATE=2019-07-23
+ENV OX_VERSION=4.0.b3 \
+    OX_BUILD_DATE=2019-08-16
 
 # JAR files required to generate OpenID Connect keys
-RUN mkdir -p /opt/key-rotation/javalibs \
-    && wget -q https://ox.gluu.org/maven/org/gluu/oxauth-client/${OX_VERSION}/oxauth-client-${OX_VERSION}-jar-with-dependencies.jar -O /opt/key-rotation/javalibs/keygen.jar
+RUN mkdir -p /app/javalibs \
+    && wget -q https://ox.gluu.org/maven/org/gluu/oxauth-client/${OX_VERSION}/oxauth-client-${OX_VERSION}-jar-with-dependencies.jar -O /app/javalibs/keygen.jar
 
 # ====
 # Tini
@@ -108,23 +106,29 @@ ENV GLUU_KEY_ROTATION_INTERVAL=48 \
 # misc stuff
 # ==========
 
-WORKDIR /opt/key-rotation
-RUN mkdir -p /etc/certs
+LABEL name="KeyRotation" \
+    maintainer="Gluu Inc. <support@gluu.org>" \
+    vendor="Gluu Federation" \
+    version="4.0.0" \
+    release="dev" \
+    summary="Gluu KeyRotation" \
+    description="Rotate OpenID keys for oxAuth"
 
-COPY scripts /opt/key-rotation/scripts
-RUN chmod +x /opt/key-rotation/scripts/entrypoint.sh
+RUN mkdir -p /etc/certs /app
 
+COPY scripts /app/scripts
+RUN chmod +x /app/scripts/entrypoint.sh
 # # create gluu user
 # RUN useradd -ms /bin/sh --uid 1000 gluu \
 #     && usermod -a -G root gluu
 
 # # adjust ownership
-# RUN chown -R 1000:1000 /opt/key-rotation \
-#     && chgrp -R 0 /opt/key-rotation && chmod -R g=u /opt/key-rotation \
+# RUN chown -R 1000:1000 /app \
+#     && chgrp -R 0 /app && chmod -R g=u /app \
 #     && chgrp -R 0 /etc/certs && chmod -R g=u /etc/certs
 
 # # run the entrypoint as gluu user
 # USER 1000
 
 ENTRYPOINT ["tini", "-g", "--"]
-CMD ["/opt/key-rotation/scripts/entrypoint.sh"]
+CMD ["/app/scripts/entrypoint.sh"]

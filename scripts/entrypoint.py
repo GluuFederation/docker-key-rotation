@@ -248,7 +248,7 @@ def generate_openid_keys(passwd, jks_path, dn, exp=365):
     cmd = " ".join([
         "java",
         "-Dlog4j.defaultInitOverride=true",
-        "-jar", "/opt/key-rotation/javalibs/keygen.jar",
+        "-jar", "/app/javalibs/keygen.jar",
         "-enc_keys", ENC_KEYS,
         "-sig_keys", SIG_KEYS,
         "-dnname", "{!r}".format(dn),
