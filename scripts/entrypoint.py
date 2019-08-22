@@ -15,6 +15,7 @@ from pygluu.containerlib.utils import decode_text
 from pygluu.containerlib.utils import encode_text
 from pygluu.containerlib.utils import exec_cmd
 from pygluu.containerlib.utils import get_random_chars
+from pygluu.containerlib.utils import generate_base64_contents
 
 from cbm import CBM
 from settings import LOGGING_CONFIG
@@ -218,26 +219,33 @@ class KeyRotator(object):
 
         out, err, retcode = generate_openid_keys(jks_pass, jks_fn, jks_dn, exp=exp_hours)
 
-        if retcode != 0:
+        if retcode != 0 or err:
             logger.error("unable to generate keys; reason={}".format(err))
             return
 
         try:
             new_keys = json.loads(out)
             merged_webkeys = merge_keys(new_keys, conf_webkeys)
+            oxauth_config = json.dumps(conf_dynamic)
+            oxauth_keys = json.dumps(merged_webkeys)
 
             logger.info("modifying oxAuth configuration")
 
             ox_modified = self.backend.modify_oxauth_config(
                 config["id"],
                 str(ox_rev + 1),
-                json.dumps(conf_dynamic),
-                json.dumps(merged_webkeys),
+                oxauth_config,
+                oxauth_keys,
             )
 
             if all([ox_modified,
                     manager.secret.set("oxauth_jks_base64", encode_jks())]):
                 manager.config.set("oxauth_key_rotated_at", int(time.time()))
+                manager.secret.set("oxauth_openid_jks_pass", jks_pass)
+                manager.secret.set("oxauth_config_base64",
+                                   generate_base64_contents(oxauth_config))
+                manager.secret.set("oxauth_openid_key_base64",
+                                   generate_base64_contents(oxauth_keys))
                 logger.info("keys have been rotated")
         except (TypeError, ValueError) as exc:
             logger.warn("unable to get public keys; reason={}".format(exc))
@@ -245,6 +253,9 @@ class KeyRotator(object):
 
 
 def generate_openid_keys(passwd, jks_path, dn, exp=365):
+    if os.path.isfile(jks_path):
+        os.unlink(jks_path)
+
     cmd = " ".join([
         "java",
         "-Dlog4j.defaultInitOverride=true",
