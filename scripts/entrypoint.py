@@ -242,8 +242,6 @@ class KeyRotator(object):
                     manager.secret.set("oxauth_jks_base64", encode_jks())]):
                 manager.config.set("oxauth_key_rotated_at", int(time.time()))
                 manager.secret.set("oxauth_openid_jks_pass", jks_pass)
-                manager.secret.set("oxauth_config_base64",
-                                   generate_base64_contents(oxauth_config))
                 manager.secret.set("oxauth_openid_key_base64",
                                    generate_base64_contents(oxauth_keys))
                 logger.info("keys have been rotated")
