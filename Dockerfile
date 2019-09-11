@@ -15,12 +15,12 @@ RUN apk update && apk add --no-cache \
 # oxAuth client
 # =============
 
-ENV OX_VERSION=4.0.b4 \
-    OX_BUILD_DATE=2019-08-30
+ENV GLUU_VERSION=4.0.b4 \
+    GLUU_BUILD_DATE=2019-09-06
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /app/javalibs \
-    && wget -q https://ox.gluu.org/maven/org/gluu/oxauth-client/${OX_VERSION}/oxauth-client-${OX_VERSION}-jar-with-dependencies.jar -O /app/javalibs/keygen.jar
+    && wget -q https://ox.gluu.org/maven/org/gluu/oxauth-client/${GLUU_VERSION}/oxauth-client-${GLUU_VERSION}-jar-with-dependencies.jar -O /app/javalibs/keygen.jar
 
 # ====
 # Tini
@@ -111,7 +111,7 @@ LABEL name="KeyRotation" \
     summary="Gluu KeyRotation" \
     description="Rotate OpenID keys for oxAuth"
 
-RUN mkdir -p /etc/certs /app
+RUN mkdir -p /etc/certs /app /etc/gluu/conf
 
 COPY scripts /app/scripts
 RUN chmod +x /app/scripts/entrypoint.sh

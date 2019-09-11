@@ -16,6 +16,8 @@ from pygluu.containerlib.utils import encode_text
 from pygluu.containerlib.utils import exec_cmd
 from pygluu.containerlib.utils import get_random_chars
 from pygluu.containerlib.utils import generate_base64_contents
+from pygluu.containerlib.persistence.couchbase import get_couchbase_user
+from pygluu.containerlib.persistence.couchbase import get_couchbase_password
 
 from cbm import CBM
 from settings import LOGGING_CONFIG
@@ -154,11 +156,8 @@ class KeyRotator(object):
             backend_cls = LDAPBackend
         else:
             host = os.environ.get("GLUU_COUCHBASE_URL", "localhost")
-            user = manager.config.get("couchbase_server_user")
-            password = decode_text(
-                manager.secret.get("encoded_couchbase_server_pw"),
-                manager.secret.get("encoded_salt"),
-            )
+            user = get_couchbase_user(manager)
+            password = get_couchbase_password(manager)
             backend_cls = CouchbaseBackend
 
         self.backend = backend_cls(host, user, password)
