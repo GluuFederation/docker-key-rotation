@@ -15,8 +15,8 @@ RUN apk update && apk add --no-cache \
 # oxAuth client
 # =============
 
-ENV GLUU_VERSION=4.0.b4 \
-    GLUU_BUILD_DATE=2019-09-06
+ENV GLUU_VERSION=4.0.rc1 \
+    GLUU_BUILD_DATE=2019-09-11
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /app/javalibs \
@@ -97,7 +97,7 @@ ENV GLUU_PERSISTENCE_TYPE=ldap \
 ENV GLUU_KEY_ROTATION_INTERVAL=48 \
     GLUU_KEY_ROTATION_CHECK=3600 \
     GLUU_WAIT_MAX_TIME=300 \
-    GLUU_WAIT_SLEEP_DURATION=5
+    GLUU_WAIT_SLEEP_DURATION=10
 
 # ==========
 # misc stuff
