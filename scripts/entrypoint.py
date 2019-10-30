@@ -18,9 +18,8 @@ from pygluu.containerlib.utils import get_random_chars
 from pygluu.containerlib.utils import generate_base64_contents
 from pygluu.containerlib.persistence.couchbase import get_couchbase_user
 from pygluu.containerlib.persistence.couchbase import get_couchbase_password
-from pygluu.containerlib.persistence.couchbase import resolve_couchbase_host
+from pygluu.containerlib.persistence.couchbase import CouchbaseClient
 
-from cbm import CBM
 from settings import LOGGING_CONFIG
 
 GLUU_LDAP_URL = os.environ.get("GLUU_LDAP_URL", "localhost:1636")
@@ -101,8 +100,7 @@ class LDAPBackend(BaseBackend):
 
 class CouchbaseBackend(BaseBackend):
     def __init__(self, host, user, password):
-        active_host = resolve_couchbase_host(host, user, password)
-        self.backend = CBM(active_host, user, password)
+        self.backend = CouchbaseClient(host, user, password)
 
     def get_oxauth_config(self):
         req = self.backend.exec_query(
