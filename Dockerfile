@@ -113,7 +113,7 @@ LABEL name="KeyRotation" \
     maintainer="Gluu Inc. <support@gluu.org>" \
     vendor="Gluu Federation" \
     version="4.0.1" \
-    release="dev" \
+    release="02" \
     summary="Gluu KeyRotation" \
     description="Rotate OpenID keys for oxAuth"
 
