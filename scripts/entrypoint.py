@@ -89,9 +89,9 @@ class LDAPBackend(BaseBackend):
     def modify_oxauth_config(self, id_, ox_rev, conf_dynamic, conf_webkeys):
         with self.backend as conn:
             conn.modify(id_, {
-                'oxRevision': [(MODIFY_REPLACE, [ox_rev])],
-                'oxAuthConfWebKeys': [(MODIFY_REPLACE, [conf_webkeys])],
-                'oxAuthConfDynamic': [(MODIFY_REPLACE, [conf_dynamic])],
+                'oxRevision': [(MODIFY_REPLACE, [str(ox_rev)])],
+                'oxAuthConfWebKeys': [(MODIFY_REPLACE, [json.dumps(conf_webkeys)])],
+                'oxAuthConfDynamic': [(MODIFY_REPLACE, [json.dumps(conf_dynamic)])],
             })
 
             result = conn.result["description"]
@@ -123,14 +123,15 @@ class CouchbaseBackend(BaseBackend):
         req = self.backend.exec_query(
             "UPDATE `gluu` "
             "USE KEYS '{0}' "
-            "SET oxRevision='{1}', oxAuthConfDynamic='{2}', oxAuthConfWebKeys='{3}' "
+            "SET oxRevision={1}, oxAuthConfDynamic={2}, oxAuthConfWebKeys={3} "
             "RETURNING oxRevision".format(
-                id_, ox_rev, conf_dynamic, conf_webkeys,
+                id_, ox_rev, json.dumps(conf_dynamic), json.dumps(conf_webkeys),
             )
         )
 
         if not req.ok:
             return False
+        return True
 
 
 class KeyRotator(object):
@@ -194,7 +195,10 @@ class KeyRotator(object):
 
         ox_rev = int(config["oxRevision"])
 
-        conf_dynamic = json.loads(config["oxAuthConfDynamic"])
+        try:
+            conf_dynamic = json.loads(config["oxAuthConfDynamic"])
+        except TypeError:  # not string/buffer
+            conf_dynamic = config["oxAuthConfDynamic"]
 
         if conf_dynamic["keyRegenerationEnabled"]:
             logger.warn("keyRegenerationEnabled config was set to true; "
@@ -211,6 +215,8 @@ class KeyRotator(object):
 
         try:
             conf_webkeys = json.loads(config["oxAuthConfWebKeys"])
+        except TypeError:  # not string/buffer
+            conf_webkeys = config["oxAuthConfWebKeys"]
         except (KeyError, IndexError):
             conf_webkeys = {"keys": []}
 
@@ -225,24 +231,24 @@ class KeyRotator(object):
         try:
             new_keys = json.loads(out)
             merged_webkeys = merge_keys(new_keys, conf_webkeys)
-            oxauth_config = json.dumps(conf_dynamic)
-            oxauth_keys = json.dumps(merged_webkeys)
 
             logger.info("modifying oxAuth configuration")
 
             ox_modified = self.backend.modify_oxauth_config(
                 config["id"],
-                str(ox_rev + 1),
-                oxauth_config,
-                oxauth_keys,
+                ox_rev + 1,
+                conf_dynamic,
+                merged_webkeys,
             )
 
             if all([ox_modified,
                     manager.secret.set("oxauth_jks_base64", encode_jks())]):
                 manager.config.set("oxauth_key_rotated_at", int(time.time()))
                 manager.secret.set("oxauth_openid_jks_pass", jks_pass)
-                manager.secret.set("oxauth_openid_key_base64",
-                                   generate_base64_contents(oxauth_keys))
+                manager.secret.set(
+                    "oxauth_openid_key_base64",
+                    generate_base64_contents(json.dumps(merged_webkeys)),
+                )
                 logger.info("keys have been rotated")
         except (TypeError, ValueError) as exc:
             logger.warn("unable to get public keys; reason={}".format(exc))
