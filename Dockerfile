@@ -13,7 +13,7 @@ RUN apk update \
 # =============
 
 ENV GLUU_VERSION=4.0.1.Final \
-    GLUU_BUILD_DATE=2019-11-21
+    GLUU_BUILD_DATE=2019-11-26
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /app/javalibs \
