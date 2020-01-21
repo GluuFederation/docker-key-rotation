@@ -2,6 +2,13 @@
 
 Here you can see an overview of changes between each release.
 
+## Version 4.0.1_06
+
+Released on January 22nd, 2020.
+
+* Upgraded `oxauth-client` to v4.0.Final.patch1 build at 2020-01-20.
+* Added more supported keys algorithms.
+
 ## Version 4.0.1_05
 
 Released on December 1st, 2019.
