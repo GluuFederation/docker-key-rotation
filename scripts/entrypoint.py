@@ -14,7 +14,7 @@ from pygluu.containerlib import get_manager
 from pygluu.containerlib.utils import decode_text
 from pygluu.containerlib.utils import encode_text
 from pygluu.containerlib.utils import exec_cmd
-from pygluu.containerlib.utils import get_random_chars
+# from pygluu.containerlib.utils import get_random_chars
 from pygluu.containerlib.utils import generate_base64_contents
 from pygluu.containerlib.persistence.couchbase import get_couchbase_user
 from pygluu.containerlib.persistence.couchbase import get_couchbase_password
@@ -189,7 +189,8 @@ class KeyRotator(object):
             logger.warn("unable to find oxAuth config")
             return
 
-        jks_pass = get_random_chars()
+        # jks_pass = get_random_chars()
+        jks_pass = self.manager.secret.get("oxauth_openid_jks_pass")
         jks_fn = self.manager.config.get("oxauth_openid_jks_fn")
         jks_dn = r"{}".format(self.manager.config.get("default_openid_jks_dn_name"))
 
