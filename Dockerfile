@@ -5,7 +5,7 @@ FROM openjdk:8-jre-alpine3.9
 # ===============
 
 RUN apk update \
-    && apk add --no-cache openssl py-pip shadow \
+    && apk add --no-cache openssl py-pip \
     && apk add --no-cache --virtual build-deps wget git
 
 # =============
@@ -13,7 +13,7 @@ RUN apk update \
 # =============
 
 ENV GLUU_VERSION=4.1.0.Final \
-    GLUU_BUILD_DATE=2020-02-14
+    GLUU_BUILD_DATE="2020-02-28 15:42"
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /app/javalibs \
