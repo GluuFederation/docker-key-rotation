@@ -13,7 +13,7 @@ RUN apk update \
 # =============
 
 ENV GLUU_VERSION=4.1.1.Final \
-    GLUU_BUILD_DATE="2020-03-26 12:55"
+    GLUU_BUILD_DATE="2020-04-16 14:18"
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /app/javalibs \
@@ -102,6 +102,7 @@ ENV GLUU_PERSISTENCE_TYPE=ldap \
 
 ENV GLUU_KEY_ROTATION_INTERVAL=48 \
     GLUU_KEY_ROTATION_CHECK=3600 \
+    GLUU_KEY_ROTATION_FORCE=false \
     GLUU_WAIT_MAX_TIME=300 \
     GLUU_WAIT_SLEEP_DURATION=10
 

@@ -102,3 +102,4 @@ ENV/
 
 run.sh
 vault_*
+tmp/
