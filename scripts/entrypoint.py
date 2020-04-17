@@ -1,3 +1,15 @@
+"""
+Entry point script that handles rotating oxAuth keys:
+- oxAuth starts off using old/expired JWKS + JKS
+- key-rotation re-generates new JWKS + JKS
+- key-rotation creates a backup of old JKS and JWKS in oxAuth at /etc/certs/oxauth-keys.jks
+  and /etc/certs/oxauth-keys.json. Note: At this point oxAuth is still using cached (old/expired) JWKS + JKS
+- key-rotation pushes new JKS .Note: At this point oxAuth is still using cached (old/expired) JWKS + JKS
+- key-rotation saves the JWKS in persistence:
+  if the process fails key rotation restores the JSK from backup in oxauth
+  if the process succeeds, oxAuth reloads itself hence loading new JWKS + JKS pair
+"""
+
 import json
 import logging
 import logging.config

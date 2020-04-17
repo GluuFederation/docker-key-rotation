@@ -100,6 +100,7 @@ ENV/
 # mypy
 .mypy_cache/
 
+.idea
 run.sh
 vault_*
 tmp/
