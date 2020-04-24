@@ -134,5 +134,5 @@ RUN chmod +x /app/scripts/entrypoint.sh
 # # run the entrypoint as gluu user
 # USER 1000
 
-ENTRYPOINT ["tini", "-g", "--"]
-CMD ["sh", "/app/scripts/entrypoint.sh"]
+ENTRYPOINT ["tini", "-g", "--", "sh", "/app/scripts/entrypoint.sh"]
+CMD ["--help"]

@@ -9,7 +9,6 @@ Entry point script that handles rotating oxAuth keys:
   if the process fails key rotation restores the JSK from backup in oxauth
   if the process succeeds, oxAuth reloads itself hence loading new JWKS + JKS pair
 """
-
 import json
 import logging
 import logging.config
@@ -19,6 +18,7 @@ import tarfile
 import time
 from tempfile import TemporaryFile
 
+import click
 import docker
 from kubernetes import client
 from kubernetes import config
@@ -379,6 +379,10 @@ class KeyRotator(object):
         return now > next_rotation
 
     def rotate(self):
+        if not self.should_rotate():
+            # logger.info("no need to rotate keys at the moment")
+            return
+
         config = self.backend.get_oxauth_config()
 
         if not config:
@@ -386,9 +390,7 @@ class KeyRotator(object):
             logger.warn("unable to find oxAuth config")
             return
 
-        # jks_pass = get_random_chars()
         jks_pass = self.manager.secret.get("oxauth_openid_jks_pass")
-        # jks_fn = self.manager.config.get("oxauth_openid_jks_fn") + ".kr"
         jks_fn = "/etc/certs/oxauth-keys.jks"
         jwks_fn = "/etc/certs/oxauth-keys.json"
         jks_dn = r"{}".format(self.manager.config.get("default_openid_jks_dn_name"))
@@ -412,13 +414,6 @@ class KeyRotator(object):
             "webKeysStorage": "keystore",
             "keyStoreSecret": jks_pass,
         })
-
-        # try:
-        #     conf_webkeys = json.loads(config["oxAuthConfWebKeys"])
-        # except TypeError:  # not string/buffer
-        #     conf_webkeys = config["oxAuthConfWebKeys"]
-        # except (KeyError, IndexError):
-        #     conf_webkeys = {"keys": []}
 
         # exp_hours = int(self.rotation_interval) + (conf_dynamic["idTokenLifetime"] / 3600)
         exp_hours = int(self.rotation_interval)
@@ -491,6 +486,53 @@ class KeyRotator(object):
         except (TypeError, ValueError) as exc:
             logger.warn("unable to get public keys; reason={}".format(exc))
 
+    def disable_builtin(self):
+        config = self.backend.get_oxauth_config()
+
+        if not config:
+            # search failed due to missing entry
+            logger.warn("unable to find oxAuth config")
+            return
+
+        ox_rev = int(config["oxRevision"])
+
+        try:
+            conf_dynamic = json.loads(config["oxAuthConfDynamic"])
+        except TypeError:  # not string/buffer
+            conf_dynamic = config["oxAuthConfDynamic"]
+
+        if not conf_dynamic["keyRegenerationEnabled"]:
+            logger.info("the builtin oxAuth key-rotation has been disabled")
+            return
+
+        logger.warn("keyRegenerationEnabled config was set to true; "
+                    "disabling the value to avoid conflict")
+
+        conf_dynamic.update({
+            "keyRegenerationEnabled": False,  # always set to False
+        })
+
+        try:
+            keys = json.loads(config["oxAuthConfWebKeys"])
+        except TypeError:  # not string/buffer
+            keys = config["oxAuthConfWebKeys"]
+        except (KeyError, IndexError):
+            keys = {"keys": []}
+
+        try:
+            logger.info("modifying oxAuth configuration")
+            ox_modified = self.backend.modify_oxauth_config(
+                config["id"],
+                ox_rev + 1,
+                conf_dynamic,
+                keys,
+            )
+            if ox_modified:
+                logger.info("builtin oxAuth key-rotation has been disabled")
+        except (TypeError, ValueError) as exc:
+            logger.warn("unable to disable builtin oxAuth key-rotation; "
+                        "reason={}".format(exc))
+
 
 def generate_openid_keys(passwd, jks_path, dn, exp=365):
     if os.path.isfile(jks_path):
@@ -515,30 +557,6 @@ def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
     with open(jks, "rb") as fd:
         encoded_jks = encode_text(fd.read(), manager.secret.get("encoded_salt"))
     return encoded_jks
-
-
-def main():
-    validate_rotation_check()
-    validate_rotation_interval()
-
-    persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
-    ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
-    rotator = KeyRotator(manager, persistence_type, ldap_mapping, GLUU_KEY_ROTATION_INTERVAL)
-
-    try:
-        while True:
-            logger.info("checking whether key should be rotated")
-
-            try:
-                if rotator.should_rotate():
-                    rotator.rotate()
-                else:
-                    logger.info("no need to rotate keys at the moment")
-            except Exception as exc:
-                logger.warn("unable to rotate keys; reason={}".format(exc))
-            time.sleep(int(GLUU_KEY_ROTATION_CHECK))
-    except KeyboardInterrupt:
-        logger.warn("canceled by user; exiting ...")
 
 
 # def merge_keys(new_keys, old_keys):
@@ -573,5 +591,57 @@ def validate_rotation_interval():
         sys.exit(1)
 
 
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+def rotate():
+    """Rotate keys.
+    """
+    validate_rotation_check()
+    validate_rotation_interval()
+
+    persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
+    ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
+    rotator = KeyRotator(manager, persistence_type, ldap_mapping, GLUU_KEY_ROTATION_INTERVAL)
+
+    try:
+        while True:
+            # logger.info("checking whether key should be rotated")
+            try:
+                rotator.rotate()
+            except Exception as exc:
+                logger.warn("unable to rotate keys; reason={}".format(exc))
+            time.sleep(int(GLUU_KEY_ROTATION_CHECK))
+    except KeyboardInterrupt:
+        logger.warn("canceled by user; exiting ...")
+
+
+@cli.command("disable-builtin")
+def disable_builtin():
+    """Disable builtin oxAuth key-rotation feature.
+    """
+    validate_rotation_check()
+    validate_rotation_interval()
+
+    persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
+    ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
+    rotator = KeyRotator(manager, persistence_type, ldap_mapping, GLUU_KEY_ROTATION_INTERVAL)
+
+    try:
+        while True:
+            # logger.info("checking whether builtin oxAuth key-rotation is enabled")
+            try:
+                rotator.disable_builtin()
+            except Exception as exc:
+                logger.warn("unable to disable builtin oxAuth key-rotation; "
+                            "reason={}".format(exc))
+            time.sleep(30)
+    except KeyboardInterrupt:
+        logger.warn("canceled by user; exiting ...")
+
+
 if __name__ == "__main__":
-    main()
+    cli()
