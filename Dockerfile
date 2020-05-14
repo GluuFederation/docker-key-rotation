@@ -1,4 +1,3 @@
-# FROM openjdk:8-jre-alpine3.9
 FROM adoptopenjdk/openjdk11:alpine-jre
 
 # ===============
@@ -21,13 +20,6 @@ ARG GLUU_BUILD_DATE="2020-05-13 04:59"
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /app/javalibs \
     && wget -q https://ox.gluu.org/maven/org/gluu/oxauth-client/${GLUU_VERSION}/oxauth-client-${GLUU_VERSION}-jar-with-dependencies.jar -O /app/javalibs/oxauth-client.jar
-
-# ====
-# # Tini
-# # ====
-
-# RUN wget -q https://github.com/krallin/tini/releases/download/v0.18.0/tini-static -O /usr/bin/tini \
-#     && chmod +x /usr/bin/tini
 
 # ======
 # Python
@@ -125,17 +117,10 @@ RUN mkdir -p /etc/certs /app /etc/gluu/conf
 
 COPY scripts /app/scripts
 RUN chmod +x /app/scripts/entrypoint.sh
-# # create gluu user
-# RUN useradd -ms /bin/sh --uid 1000 gluu \
-#     && usermod -a -G root gluu
-
-# # adjust ownership
-# RUN chown -R 1000:1000 /app \
-#     && chgrp -R 0 /app && chmod -R g=u /app \
-#     && chgrp -R 0 /etc/certs && chmod -R g=u /etc/certs
-
-# # run the entrypoint as gluu user
-# USER 1000
+# symlink JVM
+RUN mkdir -p /usr/lib/jvm/default-jvm /usr/java/latest \
+    && ln -sf /opt/java/openjdk /usr/lib/jvm/default-jvm/jre \
+        && ln -sf /usr/lib/jvm/default-jvm/jre /usr/java/latest/jre
 
 ENTRYPOINT ["tini", "-g", "--", "sh", "/app/scripts/entrypoint.sh"]
 CMD ["--help"]
