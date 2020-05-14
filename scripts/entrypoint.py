@@ -429,7 +429,7 @@ class KeyRotator(object):
         # create JWKS file; this needs to be pushed out to
         # config/secret backend and oxauth containers
         with open(jwks_fn, "w") as f:
-            f.write(out)
+            f.write(out.decode())
 
         oxauth_containers = self.meta_client.get_oxauth_containers()
         if not oxauth_containers:

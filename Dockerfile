@@ -1,30 +1,33 @@
-FROM openjdk:8-jre-alpine3.9
+# FROM openjdk:8-jre-alpine3.9
+FROM adoptopenjdk/openjdk11:alpine-jre
 
 # ===============
 # Alpine packages
 # ===============
 
 RUN apk update \
-    && apk add --no-cache openssl py-pip \
-    && apk add --no-cache --virtual build-deps wget git
+    && apk add --no-cache openssl py3-pip tini \
+    && apk add --no-cache --virtual build-deps wget git \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # =============
 # oxAuth client
 # =============
 
-ENV GLUU_VERSION=4.1.1.Final \
-    GLUU_BUILD_DATE="2020-05-08 20:27"
+ARG GLUU_VERSION=4.2.0-SNAPSHOT
+ARG GLUU_BUILD_DATE="2020-05-13 04:59"
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /app/javalibs \
     && wget -q https://ox.gluu.org/maven/org/gluu/oxauth-client/${GLUU_VERSION}/oxauth-client-${GLUU_VERSION}-jar-with-dependencies.jar -O /app/javalibs/oxauth-client.jar
 
 # ====
-# Tini
-# ====
+# # Tini
+# # ====
 
-RUN wget -q https://github.com/krallin/tini/releases/download/v0.18.0/tini-static -O /usr/bin/tini \
-    && chmod +x /usr/bin/tini
+# RUN wget -q https://github.com/krallin/tini/releases/download/v0.18.0/tini-static -O /usr/bin/tini \
+#     && chmod +x /usr/bin/tini
 
 # ======
 # Python
@@ -113,8 +116,8 @@ ENV GLUU_KEY_ROTATION_INTERVAL=48 \
 LABEL name="KeyRotation" \
     maintainer="Gluu Inc. <support@gluu.org>" \
     vendor="Gluu Federation" \
-    version="4.1.1" \
-    release="02" \
+    version="4.2.0" \
+    release="dev" \
     summary="Gluu KeyRotation" \
     description="Rotate OpenID keys for oxAuth"
 
