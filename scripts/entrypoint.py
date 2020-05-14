@@ -95,7 +95,7 @@ class DockerClient(BaseClient):
         return self.client.containers.list(filters={'label': 'APP_NAME=oxauth'})
 
     def get_container_ip(self, container):
-        for _, network in container.attrs["NetworkSettings"]["Networks"].iteritems():
+        for _, network in container.attrs["NetworkSettings"]["Networks"].items():
             return network["IPAddress"]
 
     def get_container_name(self, container):
