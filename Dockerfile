@@ -12,8 +12,8 @@ RUN apk update \
 # oxAuth client
 # =============
 
-ENV GLUU_VERSION=4.1.0.Final \
-    GLUU_BUILD_DATE="2020-02-28 15:42"
+ENV GLUU_VERSION=4.1.1.Final \
+    GLUU_BUILD_DATE="2020-05-26 17:57"
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /app/javalibs \
@@ -102,6 +102,7 @@ ENV GLUU_PERSISTENCE_TYPE=ldap \
 
 ENV GLUU_KEY_ROTATION_INTERVAL=48 \
     GLUU_KEY_ROTATION_CHECK=3600 \
+    GLUU_KEY_ROTATION_FORCE=false \
     GLUU_WAIT_MAX_TIME=300 \
     GLUU_WAIT_SLEEP_DURATION=10
 
@@ -112,8 +113,8 @@ ENV GLUU_KEY_ROTATION_INTERVAL=48 \
 LABEL name="KeyRotation" \
     maintainer="Gluu Inc. <support@gluu.org>" \
     vendor="Gluu Federation" \
-    version="4.1.0" \
-    release="01" \
+    version="4.1.1" \
+    release="04" \
     summary="Gluu KeyRotation" \
     description="Rotate OpenID keys for oxAuth"
 
@@ -133,5 +134,5 @@ RUN chmod +x /app/scripts/entrypoint.sh
 # # run the entrypoint as gluu user
 # USER 1000
 
-ENTRYPOINT ["tini", "-g", "--"]
-CMD ["/app/scripts/entrypoint.sh"]
+ENTRYPOINT ["tini", "-g", "--", "sh", "/app/scripts/entrypoint.sh"]
+CMD ["--help"]

@@ -1,9 +1,28 @@
+"""
+Entry point script that handles rotating oxAuth keys:
+- oxAuth starts off using old/expired JWKS + JKS
+- key-rotation re-generates new JWKS + JKS
+- key-rotation creates a backup of old JKS and JWKS in oxAuth at /etc/certs/oxauth-keys.jks
+  and /etc/certs/oxauth-keys.json. Note: At this point oxAuth is still using cached (old/expired) JWKS + JKS
+- key-rotation pushes new JKS .Note: At this point oxAuth is still using cached (old/expired) JWKS + JKS
+- key-rotation saves the JWKS in persistence:
+  if the process fails key rotation restores the JSK from backup in oxauth
+  if the process succeeds, oxAuth reloads itself hence loading new JWKS + JKS pair
+"""
 import json
 import logging
 import logging.config
 import os
 import sys
+import tarfile
 import time
+from tempfile import TemporaryFile
+
+import click
+import docker
+from kubernetes import client
+from kubernetes import config
+from kubernetes.stream import stream
 
 from ldap3 import Connection
 from ldap3 import Server
@@ -15,14 +34,13 @@ from pygluu.containerlib.utils import decode_text
 from pygluu.containerlib.utils import encode_text
 from pygluu.containerlib.utils import exec_cmd
 # from pygluu.containerlib.utils import get_random_chars
+from pygluu.containerlib.utils import as_boolean
 from pygluu.containerlib.utils import generate_base64_contents
 from pygluu.containerlib.persistence.couchbase import get_couchbase_user
 from pygluu.containerlib.persistence.couchbase import get_couchbase_password
 from pygluu.containerlib.persistence.couchbase import CouchbaseClient
 
 from settings import LOGGING_CONFIG
-
-GLUU_LDAP_URL = os.environ.get("GLUU_LDAP_URL", "localhost:1636")
 
 # Interval between rotation (in hours)
 GLUU_KEY_ROTATION_INTERVAL = os.environ.get("GLUU_KEY_ROTATION_INTERVAL", 48)
@@ -40,6 +58,174 @@ logger = logging.getLogger("entrypoint")
 manager = get_manager()
 
 
+class BaseClient(object):
+    def get_oxauth_containers(self):
+        """Gets oxAuth containers.
+        Subclass __MUST__ implement this method.
+        """
+        raise NotImplementedError
+
+    def get_container_ip(self, container):
+        """Gets container's IP address.
+        Subclass __MUST__ implement this method.
+        """
+        raise NotImplementedError
+
+    def get_container_name(self, container):
+        """Gets container's IP address.
+        Subclass __MUST__ implement this method.
+        """
+        raise NotImplementedError
+
+    def copy_to_container(self, container, path):
+        """Gets container's IP address.
+        Subclass __MUST__ implement this method.
+        """
+        raise NotImplementedError
+
+    def exec_cmd(self, container, cmd):
+        raise NotImplementedError
+
+
+class DockerClient(BaseClient):
+    def __init__(self, base_url="unix://var/run/docker.sock"):
+        self.client = docker.DockerClient(base_url=base_url)
+
+    def get_oxauth_containers(self):
+        return self.client.containers.list(filters={'label': 'APP_NAME=oxauth'})
+
+    def get_container_ip(self, container):
+        for _, network in container.attrs["NetworkSettings"]["Networks"].iteritems():
+            return network["IPAddress"]
+
+    def get_container_name(self, container):
+        return container.name
+
+    def copy_to_container(self, container, path):
+        src = os.path.basename(path)
+        dirname = os.path.dirname(path)
+
+        os.chdir(dirname)
+
+        with tarfile.open(src + ".tar", "w:gz") as tar:
+            tar.add(src)
+
+        with open(src + ".tar", "rb") as f:
+            payload = f.read()
+
+            # create directory first
+            container.exec_run("mkdir -p {}".format(dirname))
+
+            # copy file
+            container.put_archive(os.path.dirname(path), payload)
+
+        try:
+            os.unlink(src + ".tar")
+        except OSError:
+            pass
+
+    def exec_cmd(self, container, cmd):
+        container.exec_run(cmd)
+
+
+class KubernetesClient(BaseClient):
+    def __init__(self):
+        config_loaded = False
+
+        try:
+            config.load_incluster_config()
+            config_loaded = True
+        except config.config_exception.ConfigException:
+            logger.warn("Unable to load in-cluster configuration; trying to load from Kube config file")
+            try:
+                config.load_kube_config()
+                config_loaded = True
+            except (IOError, config.config_exception.ConfigException) as exc:
+                logger.warn("Unable to load Kube config; reason={}".format(exc))
+
+        if not config_loaded:
+            logger.error("Unable to load in-cluster or Kube config")
+            sys.exit(1)
+
+        cli = client.CoreV1Api()
+        cli.api_client.configuration.assert_hostname = False
+        self.client = cli
+
+    def get_oxauth_containers(self):
+        return self.client.list_pod_for_all_namespaces(
+            label_selector='APP_NAME=oxauth'
+        ).items
+
+    def get_container_ip(self, container):
+        return container.status.pod_ip
+
+    def get_container_name(self, container):
+        return container.metadata.name
+
+    def copy_to_container(self, container, path):
+        # make sure parent directory is created first
+        resp = stream(
+            self.client.connect_get_namespaced_pod_exec,
+            container.metadata.name,
+            container.metadata.namespace,
+            # command=["/bin/sh", "-c", "mkdir -p {}".format(os.path.dirname(path))],
+            command=["mkdir -p {}".format(os.path.dirname(path))],
+            stderr=True,
+            stdin=True,
+            stdout=True,
+            tty=False,
+        )
+
+        # copy file implementation
+        resp = stream(
+            self.client.connect_get_namespaced_pod_exec,
+            container.metadata.name,
+            container.metadata.namespace,
+            command=["tar", "xvf", "-", "-C", "/"],
+            stderr=True,
+            stdin=True,
+            stdout=True,
+            tty=False,
+            _preload_content=False,
+        )
+
+        with TemporaryFile() as tar_buffer:
+            with tarfile.open(fileobj=tar_buffer, mode="w") as tar:
+                tar.add(path)
+
+            tar_buffer.seek(0)
+            commands = []
+            commands.append(tar_buffer.read())
+
+            while resp.is_open():
+                resp.update(timeout=1)
+                if resp.peek_stdout():
+                    # logger.info("STDOUT: %s" % resp.read_stdout())
+                    pass
+                if resp.peek_stderr():
+                    # logger.info("STDERR: %s" % resp.read_stderr())
+                    pass
+                if commands:
+                    c = commands.pop(0)
+                    resp.write_stdin(c)
+                else:
+                    break
+            resp.close()
+
+    def exec_cmd(self, container, cmd):
+        stream(
+            self.client.connect_get_namespaced_pod_exec,
+            container.metadata.name,
+            container.metadata.namespace,
+            # command=["/bin/sh", "-c", cmd],
+            command=[cmd],
+            stderr=True,
+            stdin=True,
+            stdout=True,
+            tty=False,
+        )
+
+
 class BaseBackend(object):
     def get_oxauth_config(self):
         raise NotImplementedError
@@ -50,7 +236,7 @@ class BaseBackend(object):
 
 class LDAPBackend(BaseBackend):
     def __init__(self, host, user, password):
-        ldap_server = Server(GLUU_LDAP_URL, port=1636, use_ssl=True)
+        ldap_server = Server(host, port=1636, use_ssl=True)
         self.backend = Connection(ldap_server, user, password)
 
     def get_oxauth_config(self):
@@ -165,7 +351,18 @@ class KeyRotator(object):
         self.manager = manager
         self.rotation_interval = rotation_interval
 
+        metadata = os.environ.get("GLUU_CONTAINER_METADATA", "docker")
+        if metadata == "kubernetes":
+            self.meta_client = KubernetesClient()
+        else:
+            self.meta_client = DockerClient()
+
     def should_rotate(self):
+        force_rotate = as_boolean(os.environ.get("GLUU_KEY_ROTATION_FORCE", False))
+        if force_rotate:
+            logger.warn("key rotation is set to force mode")
+            return True
+
         last_rotation = self.manager.config.get("oxauth_key_rotated_at")
 
         # keys are not rotated yet
@@ -182,6 +379,10 @@ class KeyRotator(object):
         return now > next_rotation
 
     def rotate(self):
+        if not self.should_rotate():
+            # logger.info("no need to rotate keys at the moment")
+            return
+
         config = self.backend.get_oxauth_config()
 
         if not config:
@@ -189,9 +390,9 @@ class KeyRotator(object):
             logger.warn("unable to find oxAuth config")
             return
 
-        # jks_pass = get_random_chars()
         jks_pass = self.manager.secret.get("oxauth_openid_jks_pass")
-        jks_fn = self.manager.config.get("oxauth_openid_jks_fn")
+        jks_fn = "/etc/certs/oxauth-keys.jks"
+        jwks_fn = "/etc/certs/oxauth-keys.json"
         jks_dn = r"{}".format(self.manager.config.get("default_openid_jks_dn_name"))
 
         ox_rev = int(config["oxRevision"])
@@ -214,46 +415,123 @@ class KeyRotator(object):
             "keyStoreSecret": jks_pass,
         })
 
-        try:
-            conf_webkeys = json.loads(config["oxAuthConfWebKeys"])
-        except TypeError:  # not string/buffer
-            conf_webkeys = config["oxAuthConfWebKeys"]
-        except (KeyError, IndexError):
-            conf_webkeys = {"keys": []}
+        # exp_hours = int(self.rotation_interval) + (conf_dynamic["idTokenLifetime"] / 3600)
+        exp_hours = int(self.rotation_interval)
 
-        exp_hours = int(self.rotation_interval) + (conf_dynamic["idTokenLifetime"] / 3600)
-
+        # create JKS file; this needs to be pushed out to
+        # config/secret backend and oxauth containers
         out, err, retcode = generate_openid_keys(jks_pass, jks_fn, jks_dn, exp=exp_hours)
 
         if retcode != 0 or err:
             logger.error("unable to generate keys; reason={}".format(err))
             return
 
+        # create JWKS file; this needs to be pushed out to
+        # config/secret backend and oxauth containers
+        with open(jwks_fn, "w") as f:
+            f.write(out)
+
+        oxauth_containers = self.meta_client.get_oxauth_containers()
+        if not oxauth_containers:
+            logger.warn("Unable to find any oxAuth container; make sure "
+                        "to deploy oxAuth and set APP_NAME=oxauth "
+                        "label on container level")
+            return
+
+        for container in oxauth_containers:
+            name = self.meta_client.get_container_name(container)
+
+            logger.info("creating backup of {0}:/etc/certs/oxauth-keys.jks".format(name))
+            self.meta_client.exec_cmd(container, "cp /etc/certs/oxauth-keys.jks /etc/certs/oxauth-keys.jks.backup")
+            logger.info("creating new {0}:/etc/certs/oxauth-keys.jks".format(name))
+            self.meta_client.copy_to_container(container, jks_fn)
+
+            logger.info("creating backup of {0}:/etc/certs/oxauth-keys.json".format(name))
+            self.meta_client.exec_cmd(container, "cp /etc/certs/oxauth-keys.json /etc/certs/oxauth-keys.json.backup")
+            logger.info("creating new {0}:/etc/certs/oxauth-keys.json".format(name))
+            self.meta_client.copy_to_container(container, jwks_fn)
+
         try:
-            new_keys = json.loads(out)
-            merged_webkeys = merge_keys(new_keys, conf_webkeys)
+            keys = json.loads(out)
+            # keys = merge_keys(keys, conf_webkeys)
 
             logger.info("modifying oxAuth configuration")
-
             ox_modified = self.backend.modify_oxauth_config(
                 config["id"],
                 ox_rev + 1,
                 conf_dynamic,
-                merged_webkeys,
+                keys,
             )
 
-            if all([ox_modified,
-                    manager.secret.set("oxauth_jks_base64", encode_jks())]):
+            if not ox_modified:
+                # restore jks and jwks
+                logger.warn("failed to modify oxAuth configuration")
+                for container in oxauth_containers:
+                    logger.info("restoring backup of {0}:/etc/certs/oxauth-keys.jks".format(name))
+                    self.meta_client.exec_cmd(container, "cp /etc/certs/oxauth-keys.jks.backup /etc/certs/oxauth-keys.jks")
+                    logger.info("restoring backup of {0}:/etc/certs/oxauth-keys.json".format(name))
+                    self.meta_client.exec_cmd(container, "cp /etc/certs/oxauth-keys.json.backup /etc/certs/oxauth-keys.json")
+                return
+
+            # XXX: save jwks and jks to config and secret for later use?
+            if manager.secret.set("oxauth_jks_base64", encode_jks(jks_fn)):
                 manager.config.set("oxauth_key_rotated_at", int(time.time()))
                 manager.secret.set("oxauth_openid_jks_pass", jks_pass)
+                # jwks
                 manager.secret.set(
                     "oxauth_openid_key_base64",
-                    generate_base64_contents(json.dumps(merged_webkeys)),
+                    generate_base64_contents(json.dumps(keys)),
                 )
-                logger.info("keys have been rotated")
+            logger.info("keys have been rotated")
         except (TypeError, ValueError) as exc:
             logger.warn("unable to get public keys; reason={}".format(exc))
-        return True
+
+    def disable_builtin(self):
+        config = self.backend.get_oxauth_config()
+
+        if not config:
+            # search failed due to missing entry
+            logger.warn("unable to find oxAuth config")
+            return
+
+        ox_rev = int(config["oxRevision"])
+
+        try:
+            conf_dynamic = json.loads(config["oxAuthConfDynamic"])
+        except TypeError:  # not string/buffer
+            conf_dynamic = config["oxAuthConfDynamic"]
+
+        if not conf_dynamic["keyRegenerationEnabled"]:
+            logger.info("the builtin oxAuth key-rotation has been disabled")
+            return
+
+        logger.warn("keyRegenerationEnabled config was set to true; "
+                    "disabling the value to avoid conflict")
+
+        conf_dynamic.update({
+            "keyRegenerationEnabled": False,  # always set to False
+        })
+
+        try:
+            keys = json.loads(config["oxAuthConfWebKeys"])
+        except TypeError:  # not string/buffer
+            keys = config["oxAuthConfWebKeys"]
+        except (KeyError, IndexError):
+            keys = {"keys": []}
+
+        try:
+            logger.info("modifying oxAuth configuration")
+            ox_modified = self.backend.modify_oxauth_config(
+                config["id"],
+                ox_rev + 1,
+                conf_dynamic,
+                keys,
+            )
+            if ox_modified:
+                logger.info("builtin oxAuth key-rotation has been disabled")
+        except (TypeError, ValueError) as exc:
+            logger.warn("unable to disable builtin oxAuth key-rotation; "
+                        "reason={}".format(exc))
 
 
 def generate_openid_keys(passwd, jks_path, dn, exp=365):
@@ -281,38 +559,14 @@ def encode_jks(jks="/etc/certs/oxauth-keys.jks"):
     return encoded_jks
 
 
-def main():
-    validate_rotation_check()
-    validate_rotation_interval()
-
-    persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
-    ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
-    rotator = KeyRotator(manager, persistence_type, ldap_mapping, GLUU_KEY_ROTATION_INTERVAL)
-
-    try:
-        while True:
-            logger.info("checking whether key should be rotated")
-
-            try:
-                if rotator.should_rotate():
-                    rotator.rotate()
-                else:
-                    logger.info("no need to rotate keys at the moment")
-            except Exception as exc:
-                logger.warn("unable to rotate keys; reason={}".format(exc))
-            time.sleep(int(GLUU_KEY_ROTATION_CHECK))
-    except KeyboardInterrupt:
-        logger.warn("canceled by user; exiting ...")
-
-
-def merge_keys(new_keys, old_keys):
-    """Merges new and old keys while omitting expired key.
-    """
-    now = int(time.time() * 1000)
-    for key in old_keys["keys"]:
-        if key.get("exp") > now:
-            new_keys["keys"].append(key)
-    return new_keys
+# def merge_keys(new_keys, old_keys):
+#     """Merges new and old keys while omitting expired key.
+#     """
+#     now = int(time.time() * 1000)
+#     for key in old_keys["keys"]:
+#         if key.get("exp") > now:
+#             new_keys["keys"].append(key)
+#     return new_keys
 
 
 def validate_rotation_check():
@@ -337,5 +591,57 @@ def validate_rotation_interval():
         sys.exit(1)
 
 
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+def rotate():
+    """Rotate keys.
+    """
+    validate_rotation_check()
+    validate_rotation_interval()
+
+    persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
+    ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
+    rotator = KeyRotator(manager, persistence_type, ldap_mapping, GLUU_KEY_ROTATION_INTERVAL)
+
+    try:
+        while True:
+            # logger.info("checking whether key should be rotated")
+            try:
+                rotator.rotate()
+            except Exception as exc:
+                logger.warn("unable to rotate keys; reason={}".format(exc))
+            time.sleep(int(GLUU_KEY_ROTATION_CHECK))
+    except KeyboardInterrupt:
+        logger.warn("canceled by user; exiting ...")
+
+
+@cli.command("disable-builtin")
+def disable_builtin():
+    """Disable builtin oxAuth key-rotation feature.
+    """
+    validate_rotation_check()
+    validate_rotation_interval()
+
+    persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
+    ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
+    rotator = KeyRotator(manager, persistence_type, ldap_mapping, GLUU_KEY_ROTATION_INTERVAL)
+
+    try:
+        while True:
+            # logger.info("checking whether builtin oxAuth key-rotation is enabled")
+            try:
+                rotator.disable_builtin()
+            except Exception as exc:
+                logger.warn("unable to disable builtin oxAuth key-rotation; "
+                            "reason={}".format(exc))
+            time.sleep(30)
+    except KeyboardInterrupt:
+        logger.warn("canceled by user; exiting ...")
+
+
 if __name__ == "__main__":
-    main()
+    cli()
