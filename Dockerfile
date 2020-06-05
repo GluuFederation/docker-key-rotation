@@ -13,7 +13,7 @@ RUN apk update \
 # =============
 
 ENV GLUU_VERSION=4.1.1.Final \
-    GLUU_BUILD_DATE="2020-05-08 20:27"
+    GLUU_BUILD_DATE="2020-05-26 17:57"
 
 # JAR files required to generate OpenID Connect keys
 RUN mkdir -p /app/javalibs \
@@ -114,7 +114,7 @@ LABEL name="KeyRotation" \
     maintainer="Gluu Inc. <support@gluu.org>" \
     vendor="Gluu Federation" \
     version="4.1.1" \
-    release="02" \
+    release="04" \
     summary="Gluu KeyRotation" \
     description="Rotate OpenID keys for oxAuth"
 
