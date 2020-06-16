@@ -207,7 +207,7 @@ class KubernetesClient(BaseClient):
                     pass
                 if commands:
                     c = commands.pop(0)
-                    resp.write_stdin(c)
+                    resp.write_stdin(c.decode())
                 else:
                     break
             resp.close()
