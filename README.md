@@ -2,10 +2,12 @@
 
 KeyRotation is a special container to rotate OpenID keys for oxAuth.
 
+WARNING: this image is deprecated in favor of [gluufederation/docker-certmanager](https://github.com/GluuFederation/docker-certmanager).
+
 ## Versions
 
-- Stable: `gluufederation/key-rotation:4.1.1_03`
-- Unstable: `gluufederation/key-rotation:4.1.1_dev`
+- Stable: `N/A`
+- Unstable: `gluufederation/key-rotation:4.2.0_dev`
 
 Refer to [Changelog](./CHANGES.md) for details on new features, bug fixes, or older releases.
 
