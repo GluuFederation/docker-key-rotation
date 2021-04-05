@@ -2,6 +2,10 @@
 
 Here you can see an overview of changes between each release.
 
+## Version 3.1.6_04
+
+* Fixed mismatched keystore password between secret and persistence (after rotating keys).
+
 ## Version 3.1.6_03
 
 Released on July 4th, 2019.
