@@ -57,6 +57,9 @@ def exec_cmd(cmd):
 
 
 def generate_openid_keys(passwd, jks_path, dn, exp=365):
+    if os.path.isfile(jks_path):
+        os.unlink(jks_path)
+
     cmd = " ".join([
         "java",
         "-jar", "/opt/key-rotation/javalibs/keygen.jar",
@@ -192,7 +195,8 @@ def main():
     user = manager.config.get("ldap_binddn")
     passwd = decrypt_text(manager.secret.get("encoded_ox_ldap_pw"),
                           manager.secret.get("encoded_salt"))
-    jks_pass = get_random_chars()
+    # jks_pass = get_random_chars()
+    jks_pass = manager.secret.get("oxauth_openid_jks_pass")
     jks_fn = manager.config.get("oxauth_openid_jks_fn")
     jks_dn = r"{}".format(manager.config.get("default_openid_jks_dn_name"))
 
